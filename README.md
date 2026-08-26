@@ -139,6 +139,15 @@ unshare --map-root-user --mount -- \
     ./target/debug/layerctl --store /path/to/a/store transaction -- /bin/some-static-binary
 ```
 
+`layerctl install --source <dir>` converts a static (not live) source tree
+into `base`/`override`/`data`, extracting `home`/`root`/`srv` out into
+`data`. Not the full live-migration flow (that needs a reboot into a
+dedicated dracut initramfs, not implemented yet):
+
+```bash
+./target/debug/layerctl --store /path/to/a/store install --source /path/to/a/rootfs
+```
+
 ## Initial target
 
 Fedora, Btrfs, GRUB, dracut, DNF, x86_64, UEFI. Other distributions and

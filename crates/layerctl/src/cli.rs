@@ -31,7 +31,9 @@ pub enum Command {
     Checkpoint {
         name: String,
     },
-    Install,
+    Install {
+        source: PathBuf,
+    },
     Doctor,
 }
 
@@ -128,7 +130,18 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Invocation, CliError>
         "checkpoint" => Command::Checkpoint {
             name: args.next().ok_or(CliError::MissingArgument("name"))?,
         },
-        "install" => Command::Install,
+        "install" => {
+            let mut source = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--source" => source = args.next(),
+                    other => return Err(CliError::UnknownCommand(other.to_string())),
+                }
+            }
+            Command::Install {
+                source: source.ok_or(CliError::MissingArgument("--source"))?.into(),
+            }
+        }
         "doctor" => Command::Doctor,
         other => return Err(CliError::UnknownCommand(other.to_string())),
     };

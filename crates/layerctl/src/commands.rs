@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use layerfs_storage::DirectoryBackend;
+use layerfs_storage::{DirectoryBackend, StorageBackend};
 use layerfs_transaction::Transaction;
 
 use crate::cli::{Command, Invocation};
@@ -9,10 +9,9 @@ use crate::store;
 use crate::walk::{self, EntryKind};
 
 /// Executes a parsed invocation. `status`, `inspect`, `diff`, `reset`,
-/// `verify`, `transaction`, and `boot-register` are implemented against a
-/// `DirectoryBackend`-style store; everything requiring a real
-/// package-manager adapter (`rollback`, `rebuild`, `install`) is still a
-/// stub.
+/// `verify`, `transaction`, `boot-register`, and `install` are implemented
+/// against a `DirectoryBackend`-style store; `rollback`/`rebuild`/
+/// `checkpoint`, which need a real running system, are still stubs.
 pub fn run(invocation: Invocation) -> Result<(), String> {
     let Invocation { store, command } = invocation;
     let store_root = crate::store::resolve(&store);
@@ -32,7 +31,7 @@ pub fn run(invocation: Invocation) -> Result<(), String> {
         Command::Rollback { target } => todo(&format!("rollback {target}")),
         Command::Rebuild { target } => todo(&format!("rebuild {target}")),
         Command::Checkpoint { name } => todo(&format!("checkpoint {name}")),
-        Command::Install => todo("install"),
+        Command::Install { source } => install_cmd(&store_root, &source),
         Command::Doctor => todo("doctor"),
     }
 }
@@ -199,6 +198,51 @@ fn boot_register_cmd(
     let dest = layerfs_storage::boot::register(&boot_store(store_root), name, kernel, initramfs)
         .map_err(|e| e.to_string())?;
     println!("registered {name} -> {}", dest.display());
+    Ok(())
+}
+
+/// Converts a static (not live) source directory into `base`/`override`/
+/// `data` under `store_root`. Not the full reboot-into-migration flow yet.
+fn install_cmd(store_root: &Path, source: &Path) -> Result<(), String> {
+    if !source.is_dir() {
+        return Err(format!("{} is not a directory", source.display()));
+    }
+
+    let base = store_root.join("base");
+    if base.exists() {
+        return Err(format!("{} already has a base layer", base.display()));
+    }
+    std::fs::create_dir_all(store_root).map_err(|e| e.to_string())?;
+
+    let backend = DirectoryBackend::new(store_root);
+    backend
+        .prepare_layer(&base, Some(source))
+        .map_err(|e| e.to_string())?;
+
+    let data_root = store_root.join("data");
+    std::fs::create_dir_all(&data_root).map_err(|e| e.to_string())?;
+    for name in layerfs_core::DATA_MOUNTS {
+        let from = base.join(name);
+        if from.is_dir() {
+            std::fs::rename(&from, data_root.join(name)).map_err(|e| e.to_string())?;
+        }
+    }
+
+    std::fs::create_dir_all(store_root.join("override")).map_err(|e| e.to_string())?;
+
+    let report = layerfs_storage::validate::verify_root(&base);
+    for check in &report.checks {
+        println!(
+            "[{}] {}",
+            if check.ok { "ok" } else { "FAIL" },
+            check.description
+        );
+    }
+    if !report.passed() {
+        return Err("installed base failed validation".to_string());
+    }
+
+    println!("installed store at {}", store_root.display());
     Ok(())
 }
 

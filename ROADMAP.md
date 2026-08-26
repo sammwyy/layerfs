@@ -2161,8 +2161,10 @@ and make BASE/update rollback boot-complete.
 
 Progress:
 
-- [ ] not started (`layerctl install` returns "not implemented")
-- [ ] `layerctl install --integrations dnf,apt` should read `layerfs.integrations=` from `/proc/cmdline` on the running system and activate the matching adapter binaries (e.g. symlink `layerfs-dnf` over `/usr/bin/dnf`) — the GRUB side of this (Milestone 3) is already in place, only the activation step is missing
+- [x] `layerctl install --source <dir>` implemented for the offline, single-step case: copies a static source tree into a new `base`, extracts the `DATA_MOUNTS` paths (`home`/`root`/`srv`) out into `data/`, creates an empty `override`, validates the result — refuses if a `base` already exists or the source isn't a directory
+- [x] verified for real: installed from a scratch fixture tree, confirmed `home`/`root`/`srv` landed under `data/` and not `base/`, `/var/lib/rpm` correctly stayed in `base/` (not treated as data), a second install over the same store refuses, and the resulting store composes correctly as a real overlay mount (base content plus override shadowing both visible)
+- [ ] not the full section 31 flow — that reboots into a dedicated migration initramfs specifically to avoid copying a live, concurrently-changing filesystem; `install` here requires an already-static source (a mounted image, a snapshot, anything not being written to), and doesn't touch GRUB/dracut/boot artifacts at all
+- [ ] `layerctl install --integrations dnf,apt` should additionally read `layerfs.integrations=` from `/proc/cmdline` on the running system and activate the matching adapter binaries (e.g. symlink `layerfs-dnf` over `/usr/bin/dnf`) — the GRUB side of this (Milestone 3) is already in place, only the activation step is missing
 
 Support converting an existing Fedora Btrfs installation.
 
