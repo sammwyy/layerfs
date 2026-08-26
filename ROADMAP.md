@@ -2010,8 +2010,14 @@ Previous Update
 
 Progress:
 
-- [~] `status` / `inspect` / `diff` / `reset` / `verify` parse and dispatch, each returning "not implemented" (`crates/layerctl`)
-- [ ] real implementations backed by storage discovery
+- [x] `status` — lists discovered layer paths for a `--store <path>` (`crates/layerctl/src/store.rs`, `commands.rs`)
+- [x] `inspect <layer>` — walks a layer's raw tree, tagging OverlayFS whiteouts (`crates/layerctl/src/walk.rs`)
+- [x] `diff <layer>` — classifies each entry as added/modified/removed against the next layer down
+- [x] `reset <path>` — removes a path's override representation (file, whiteout, or directory), restoring the lower layer's version
+- [x] `verify` — MVP structural checks against BASE (`/usr`, `/etc`, `/bin` or `/usr/bin`) (`crates/layerctl/src/verify.rs`)
+- [ ] `rollback` / `rebuild` / `checkpoint` / `install` / `doctor` — depend on the transaction engine and package-manager adapters, still stubs
+
+Verified against a real store layout (including an actual unprivileged OverlayFS whiteout device) built in a scratch directory: `status`, `inspect override`, `diff override`, `verify`, and `reset` (plus its correct failure on a second reset) all behaved as expected, and `layerctl status` against a nonexistent default store fails safely without creating anything.
 
 Implement:
 

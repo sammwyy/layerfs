@@ -1,20 +1,23 @@
 mod cli;
 mod commands;
+mod store;
+mod verify;
+mod walk;
 
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
     let args = std::env::args().skip(1);
 
-    let command = match cli::parse(args) {
-        Ok(command) => command,
+    let invocation = match cli::parse(args) {
+        Ok(invocation) => invocation,
         Err(e) => {
             eprintln!("layerctl: {e}");
             return ExitCode::FAILURE;
         }
     };
 
-    if let Err(e) = commands::run(command) {
+    if let Err(e) = commands::run(invocation) {
         eprintln!("layerctl: {e}");
         return ExitCode::FAILURE;
     }
