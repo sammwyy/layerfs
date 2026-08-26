@@ -35,6 +35,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "layerfs-adapter"
+version = "0.1.0"
+dependencies = [
+ "layerfs-storage",
+ "layerfs-transaction",
+]
+
+[[package]]
 name = "layerfs-core"
 version = "0.1.0"
 dependencies = [
@@ -47,8 +55,7 @@ dependencies = [
 name = "layerfs-dnf"
 version = "0.1.0"
 dependencies = [
- "layerfs-storage",
- "layerfs-transaction",
+ "layerfs-adapter",
 ]
 
 [[package]]

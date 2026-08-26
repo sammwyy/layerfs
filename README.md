@@ -47,12 +47,13 @@ crates/
   layerfs-core         checkpoint/layer/state semantics, no I/O
   layerfs-storage       StorageBackend trait, Btrfs and directory backends
   layerfs-transaction    staging, locking, atomic commit
+  layerfs-adapter        shared package-manager adapter runner (classify → passthrough or transaction)
   layerfs-init          early-userspace root assembly binary (initramfs)
   layerctl               administrative CLI
 
 integrations/
   grub                   layerfs-grub-entries: generates the checkpoint GRUB menu entries
-  dnf                    layerfs-dnf: routes mutating dnf operations through a system transaction
+  dnf                    layerfs-dnf: dnf verb classification, built on layerfs-adapter
   dracut, apt, pacman     distro/init-system glue, not yet implemented
 
 tests/

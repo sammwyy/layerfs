@@ -22,10 +22,14 @@ transaction is harmless, skipping a real one is not. `--downloadonly`
 overrides this back to read-only regardless of verb, since it only
 populates the cache.
 
+That classification is all this crate contributes — the passthrough exec,
+transaction staging, chrooted execution, validation, and commit all live in
+`layerfs-adapter`, shared with every other package-manager adapter. Future
+adapters (`layerfs-apt`, `layerfs-pacman`) supply their own `is_mutating`
+and reuse the same runner, each in its own crate under `integrations/`.
+
 Not built by `cargo build` (see the workspace's `default-members`) — build
-with `cargo build -p layerfs-dnf` or `cargo build --workspace`. Future
-adapters (`layerfs-apt`, `layerfs-pacman`) should follow the same pattern:
-their own crate under `integrations/`, opted into explicitly.
+with `cargo build -p layerfs-dnf` or `cargo build --workspace`.
 
 Not yet installed over a real `/usr/bin/dnf` (Milestone 9, retrofit
 installation) or tested against a real package transaction — see

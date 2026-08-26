@@ -1,0 +1,12 @@
+[package]
+name = "layerfs-adapter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Reusable runner for package-manager adapters: classify, exec passthrough, or drive a system transaction"
+
+[dependencies]
+layerfs-storage.workspace = true
+layerfs-transaction.workspace = true

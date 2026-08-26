@@ -8,8 +8,7 @@ repository.workspace = true
 description = "DNF adapter: routes mutating DNF operations through a LayerFS system transaction"
 
 [dependencies]
-layerfs-storage.workspace = true
-layerfs-transaction.workspace = true
+layerfs-adapter.workspace = true
 
 [[bin]]
 name = "layerfs-dnf"
