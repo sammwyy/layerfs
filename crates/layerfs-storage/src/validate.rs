@@ -15,11 +15,12 @@ impl Report {
     }
 }
 
-/// MVP structural validation for a BASE (or any assembled-root candidate)
-/// layer, per the design notes: this proves the layer is structurally
-/// plausible, not that it will boot.
-pub fn verify_base(base: &Path) -> Report {
-    let exists = |rel: &str| base.join(rel).exists();
+/// MVP structural validation for an assembled (or candidate) root: proves
+/// it is structurally plausible, not that it will boot — rollback exists
+/// precisely because some failures can only be discovered during boot
+/// (section 29).
+pub fn verify_root(root: &Path) -> Report {
+    let exists = |rel: &str| root.join(rel).exists();
 
     let checks = vec![
         Check {
@@ -46,13 +47,14 @@ mod tests {
 
     #[test]
     fn flags_missing_directories() {
-        let dir = std::env::temp_dir().join(format!("layerctl-verify-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("layerfs-validate-test-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         fs::create_dir_all(dir.join("usr")).unwrap();
         fs::create_dir_all(dir.join("etc")).unwrap();
         // no bin
 
-        let report = verify_base(&dir);
+        let report = verify_root(&dir);
         assert!(!report.passed());
         assert!(
             report
@@ -67,11 +69,11 @@ mod tests {
     #[test]
     fn passes_a_plausible_root() {
         let dir =
-            std::env::temp_dir().join(format!("layerctl-verify-test-ok-{}", std::process::id()));
+            std::env::temp_dir().join(format!("layerfs-validate-test-ok-{}", std::process::id()));
         fs::create_dir_all(dir.join("usr/bin")).unwrap();
         fs::create_dir_all(dir.join("etc")).unwrap();
 
-        let report = verify_base(&dir);
+        let report = verify_root(&dir);
         assert!(report.passed());
 
         fs::remove_dir_all(&dir).unwrap();

@@ -9,4 +9,5 @@ description = "Storage backend abstraction over layer trees (Btrfs, plain direct
 
 [dependencies]
 layerfs-core.workspace = true
+rustix.workspace = true
 thiserror.workspace = true

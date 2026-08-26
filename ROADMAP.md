@@ -2041,12 +2041,14 @@ At this stage LayerFS already becomes useful for manual experimentation.
 Progress:
 
 - [x] `flock`-based `TransactionLock` (`layerfs-transaction::lock`)
-- [~] `Transaction::stage/validate/commit` state machine skeleton (`layerfs-transaction::transaction`, all stubs)
-- [ ] private mount namespace
-- [ ] staging upper wired to a real `StorageBackend`
-- [ ] atomic metadata commit
-- [ ] failure cleanup
-- [ ] `layerctl transaction -- bash` dev command
+- [x] real `DirectoryBackend`: `prepare_layer`/`clone_layer` (recursive copy preserving symlinks and OverlayFS whiteouts, `layerfs-storage::copy_tree`), `freeze_layer`/`delete_layer` (permission-bit based; true immutability is the Btrfs backend's job), `verify_layer`
+- [x] private mount namespace: `Transaction::stage` calls `unshare(CLONE_NEWNS)` before mounting, so a transaction never sees OVERRIDE and its mount doesn't leak into the parent namespace (section 13)
+- [x] staging upper wired to a real `StorageBackend`: `HEAD.next > UPDATE.next > BASE` assembled via the same `layerfs_storage::overlay::assemble` boot uses (moved there from `layerfs-init` so both share one mount implementation)
+- [x] atomic metadata commit: `layerfs-storage::generations` — `update`/`update-head` are symlinks into `generations/`, repointed via `symlink` + `rename` (a single atomic syscall per pointer), never by renaming the named path itself
+- [x] failure cleanup: `Transaction`'s `Drop` deletes any staged (uncommitted) generations and unmounts the transaction root — verified for command failure (nonzero exit), validation failure, and the squash-required guard, all leaving the store byte-for-byte unchanged
+- [x] `layerctl transaction -- <program> [args...]` dev command — chroots `program` into the assembled transaction root
+- [x] verified for real (needs `CAP_SYS_ADMIN`/`CAP_SYS_CHROOT`, run under `unshare --map-root-user --mount`): bootstrap transaction commits correctly (symlinks point at frozen, read-only generations; BASE untouched); a second transaction against an active UPDATE_HEAD is refused with a clear message; a failing command and a failing validation both discard cleanly with no trace in `generations/`
+- [ ] squashing an active UPDATE_HEAD into UPDATE.next — blocked on `layerfs_core::squash` (Milestone 6); `stage()` refuses explicitly rather than guessing
 
 Implement:
 

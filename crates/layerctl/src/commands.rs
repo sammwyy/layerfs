@@ -1,13 +1,18 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use layerfs_storage::DirectoryBackend;
+use layerfs_transaction::Transaction;
 
 use crate::cli::{Command, Invocation};
+use crate::store;
 use crate::walk::{self, EntryKind};
-use crate::{store, verify};
 
-/// Executes a parsed invocation. `status`, `inspect`, `diff`, `reset`, and
-/// `verify` are implemented against a `DirectoryBackend`-style store;
-/// everything requiring the transaction engine or a package-manager
-/// adapter (`rollback`, `rebuild`, `install`) is still a stub.
+/// Executes a parsed invocation. `status`, `inspect`, `diff`, `reset`,
+/// `verify`, and `transaction` are implemented against a
+/// `DirectoryBackend`-style store; everything requiring a real
+/// package-manager adapter (`rollback`, `rebuild`, `install`) is still a
+/// stub.
 pub fn run(invocation: Invocation) -> Result<(), String> {
     let Invocation { store, command } = invocation;
     let store_root = crate::store::resolve(&store);
@@ -18,6 +23,7 @@ pub fn run(invocation: Invocation) -> Result<(), String> {
         Command::Diff { layer } => diff(&store_root, &layer),
         Command::Reset { path } => reset(&store_root, &path),
         Command::Verify => verify_cmd(&store_root),
+        Command::Transaction { program, args } => transaction_cmd(&store_root, &program, &args),
         Command::Rollback { target } => todo(&format!("rollback {target}")),
         Command::Rebuild { target } => todo(&format!("rebuild {target}")),
         Command::Checkpoint { name } => todo(&format!("checkpoint {name}")),
@@ -120,7 +126,7 @@ fn reset(store_root: &std::path::Path, path: &std::path::Path) -> Result<(), Str
 
 fn verify_cmd(store_root: &std::path::Path) -> Result<(), String> {
     let discovered = store::discover_layers(store_root)?;
-    let report = verify::verify_base(&discovered.base);
+    let report = layerfs_storage::validate::verify_root(&discovered.base);
 
     for check in &report.checks {
         println!(
@@ -135,4 +141,40 @@ fn verify_cmd(store_root: &std::path::Path) -> Result<(), String> {
     } else {
         Err("verification failed".to_string())
     }
+}
+
+/// Development-only system transaction: stages UPDATE.next/HEAD.next,
+/// chroots `program` into the assembled `HEAD.next > UPDATE.next > BASE`
+/// view, validates, and commits on success. A real package-manager
+/// adapter (dnf/apt/pacman) will drive this same engine; this command
+/// exists to exercise it before those adapters are written (section 25).
+fn transaction_cmd(store_root: &Path, program: &str, args: &[String]) -> Result<(), String> {
+    let backend = DirectoryBackend::new(store_root);
+    let mut txn = Transaction::begin(store_root, &backend, transaction_id(), "layerctl")
+        .map_err(|e| e.to_string())?;
+
+    let target = store_root.join("transaction-root");
+    txn.stage(&target).map_err(|e| e.to_string())?;
+
+    println!("transaction: running {program} in {}", target.display());
+    let status = txn.execute(program, args).map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err(format!(
+            "{program} exited with {status}; transaction discarded"
+        ));
+    }
+
+    txn.validate().map_err(|e| e.to_string())?;
+    txn.commit().map_err(|e| e.to_string())?;
+
+    println!("transaction committed");
+    Ok(())
+}
+
+fn transaction_id() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or_default();
+    format!("txn-{nanos}")
 }

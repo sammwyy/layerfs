@@ -106,6 +106,16 @@ Recovery — proving GRUB itself renders the menu and passes the right
 ./scripts/qemu-grub-smoke.sh
 ```
 
+`layerctl transaction -- <program> [args...]` drives the real transaction
+engine (staging, a private mount namespace, chrooted execution, validation,
+atomic commit) for development, in place of a package-manager adapter. Like
+OverlayFS assembly, it needs `CAP_SYS_ADMIN`/`CAP_SYS_CHROOT`:
+
+```bash
+unshare --map-root-user --mount -- \
+    ./target/debug/layerctl --store /path/to/a/store transaction -- /bin/some-static-binary
+```
+
 ## Initial target
 
 Fedora, Btrfs, GRUB, dracut, DNF, x86_64, UEFI. Other distributions and

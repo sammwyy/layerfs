@@ -1,7 +1,6 @@
 mod cli;
 mod commands;
 mod store;
-mod verify;
 mod walk;
 
 use std::process::ExitCode;

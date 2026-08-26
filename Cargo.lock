@@ -71,6 +71,7 @@ name = "layerfs-storage"
 version = "0.1.0"
 dependencies = [
  "layerfs-core",
+ "rustix",
  "thiserror",
 ]
 

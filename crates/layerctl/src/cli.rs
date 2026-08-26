@@ -7,6 +7,7 @@ pub enum Command {
     Diff { layer: String },
     Reset { path: PathBuf },
     Verify,
+    Transaction { program: String, args: Vec<String> },
     Rollback { target: String },
     Rebuild { target: String },
     Checkpoint { name: String },
@@ -32,47 +33,60 @@ pub enum CliError {
 
 /// Parses `layerctl [--store <path>] <command> [args...]` using a minimal
 /// argument parser, per the dependency philosophy of avoiding heavy CLI
-/// frameworks. `--store` may appear anywhere before the command's own
-/// arguments.
+/// frameworks. `--store` is only recognized before the command name —
+/// everything after it (notably `transaction -- <program> [args...]`) is
+/// passed through verbatim rather than re-scanned for flags.
 pub fn parse(args: impl Iterator<Item = String>) -> Result<Invocation, CliError> {
-    let mut store = None;
-    let mut rest = Vec::new();
     let mut args = args.peekable();
+    let mut store = None;
 
-    while let Some(arg) = args.next() {
-        if arg == "--store" {
-            store = Some(PathBuf::from(
-                args.next()
-                    .ok_or(CliError::MissingArgument("--store value"))?,
-            ));
-        } else {
-            rest.push(arg);
+    while let Some(arg) = args.peek() {
+        if arg != "--store" {
+            break;
         }
+        args.next();
+        store = Some(PathBuf::from(
+            args.next()
+                .ok_or(CliError::MissingArgument("--store value"))?,
+        ));
     }
 
-    let mut rest = rest.into_iter();
-    let command_name = rest.next().ok_or(CliError::MissingArgument("command"))?;
+    let command_name = args.next().ok_or(CliError::MissingArgument("command"))?;
 
     let command = match command_name.as_str() {
         "status" => Command::Status,
         "inspect" => Command::Inspect {
-            layer: rest.next().ok_or(CliError::MissingArgument("layer"))?,
+            layer: args.next().ok_or(CliError::MissingArgument("layer"))?,
         },
         "diff" => Command::Diff {
-            layer: rest.next().ok_or(CliError::MissingArgument("layer"))?,
+            layer: args.next().ok_or(CliError::MissingArgument("layer"))?,
         },
         "reset" => Command::Reset {
-            path: rest.next().ok_or(CliError::MissingArgument("path"))?.into(),
+            path: args.next().ok_or(CliError::MissingArgument("path"))?.into(),
         },
         "verify" => Command::Verify,
+        "transaction" => {
+            let mut rest: Vec<String> = args.collect();
+            if rest.first().map(String::as_str) == Some("--") {
+                rest.remove(0);
+            }
+            if rest.is_empty() {
+                return Err(CliError::MissingArgument("command to run"));
+            }
+            let program = rest.remove(0);
+            Command::Transaction {
+                program,
+                args: rest,
+            }
+        }
         "rollback" => Command::Rollback {
-            target: rest.next().ok_or(CliError::MissingArgument("target"))?,
+            target: args.next().ok_or(CliError::MissingArgument("target"))?,
         },
         "rebuild" => Command::Rebuild {
-            target: rest.next().ok_or(CliError::MissingArgument("target"))?,
+            target: args.next().ok_or(CliError::MissingArgument("target"))?,
         },
         "checkpoint" => Command::Checkpoint {
-            name: rest.next().ok_or(CliError::MissingArgument("name"))?,
+            name: args.next().ok_or(CliError::MissingArgument("name"))?,
         },
         "install" => Command::Install,
         "doctor" => Command::Doctor,
