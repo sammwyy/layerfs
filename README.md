@@ -118,6 +118,17 @@ Recovery — proving GRUB itself renders the menu and passes the right
 ./scripts/qemu-grub-smoke.sh
 ```
 
+`scripts/qemu-boot-artifacts-smoke.sh` proves boot artifact selection
+specifically: registers the real host kernel under two distinguishable
+initramfs images as the BASE and HEAD boot generations, generates entries
+from that store, and boots both the Normal and Base Recovery entries under
+QEMU/KVM, checking each loaded the initramfs its own tier actually
+registered — not just that the generated paths look plausible.
+
+```bash
+./scripts/qemu-boot-artifacts-smoke.sh
+```
+
 `layerctl transaction -- <program> [args...]` drives the real transaction
 engine (staging, a private mount namespace, chrooted execution, validation,
 atomic commit) for development, in place of a package-manager adapter. Like

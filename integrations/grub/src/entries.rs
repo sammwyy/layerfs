@@ -1,12 +1,17 @@
 use layerfs_core::Checkpoint;
 
-/// Boot artifact paths and store location shared by every generated entry.
-/// Paths are passed through verbatim, exactly as GRUB will resolve them —
-/// this crate has no opinion on partition layout (section 30, boot
-/// artifact transactions, is not implemented yet).
+/// Resolved kernel/initramfs paths for one boot artifact generation.
+pub struct BootTierPaths {
+    pub kernel: String,
+    pub initramfs: String,
+}
+
+/// Store location and boot artifact generations shared by every entry.
+/// `update`/`head` are optional — a fresh install may only have `base`.
 pub struct Options {
-    pub linux: String,
-    pub initrd: String,
+    pub base: Option<BootTierPaths>,
+    pub update: Option<BootTierPaths>,
+    pub head: Option<BootTierPaths>,
     pub store: String,
     /// Adapter names to activate this boot, e.g. `["dnf", "apt"]`.
     pub integrations: Vec<String>,
@@ -16,48 +21,70 @@ pub struct Options {
     pub extra_cmdline: String,
 }
 
+#[derive(Clone, Copy)]
+enum BootTier {
+    Head,
+    Update,
+    Base,
+}
+
 struct Entry {
     title: &'static str,
     checkpoint: Checkpoint,
     head_off: bool,
+    boot: BootTier,
 }
 
 /// The five hardcoded GRUB entries from section 8 of the design notes.
-/// Order matters: it is GRUB's default entry index.
+/// Order matters: it is GRUB's default entry index. Each entry's boot
+/// tier must match its rootfs state (section 30): entries that include
+/// UPDATE_HEAD boot the newest kernel, Previous Update boots the one
+/// before it, and Base Recovery boots the original factory kernel.
 const ENTRIES: [Entry; 5] = [
     Entry {
         title: "Fedora Linux",
         checkpoint: Checkpoint::Normal,
         head_off: false,
+        boot: BootTier::Head,
     },
     Entry {
         title: "Fedora Linux — Safe Mode",
         checkpoint: Checkpoint::Safe,
         head_off: false,
+        boot: BootTier::Head,
     },
     Entry {
         title: "Fedora Linux — System Only",
         checkpoint: Checkpoint::System,
         head_off: false,
+        boot: BootTier::Head,
     },
     Entry {
         title: "Fedora Linux — Previous Update",
         checkpoint: Checkpoint::Safe,
         head_off: true,
+        boot: BootTier::Update,
     },
     Entry {
         title: "Fedora Linux — Base Recovery",
         checkpoint: Checkpoint::Base,
         head_off: false,
+        boot: BootTier::Base,
     },
 ];
 
-/// Renders the five checkpoint menu entries as GRUB configuration syntax,
-/// suitable as the stdout of an `/etc/grub.d/` script.
+/// Renders the checkpoint menu entries as GRUB configuration syntax,
+/// suitable as the stdout of an `/etc/grub.d/` script. An entry whose
+/// required boot tier (and fallbacks) has no registered artifacts is
+/// skipped rather than pointing GRUB at a kernel that doesn't exist.
 pub fn render(opts: &Options) -> String {
     let mut out = String::new();
 
     for entry in &ENTRIES {
+        let Some(boot) = resolve_tier(opts, entry.boot) else {
+            continue;
+        };
+
         let mut cmdline = format!("layerfs.checkpoint={}", entry.checkpoint.name());
         if entry.head_off {
             cmdline.push_str(" layerfs.head=off");
@@ -76,23 +103,46 @@ pub fn render(opts: &Options) -> String {
         out.push_str(&format!(
             "menuentry '{title}' {{\n    linux {linux} {cmdline}\n    initrd {initrd}\n}}\n",
             title = entry.title,
-            linux = opts.linux,
+            linux = boot.kernel,
             cmdline = cmdline,
-            initrd = opts.initrd,
+            initrd = boot.initramfs,
         ));
     }
 
     out
 }
 
+/// Falls back to a lower tier when the requested one has no artifacts —
+/// booting an older kernel against a newer rootfs is safer than emitting
+/// a menu entry pointing at nothing.
+fn resolve_tier(opts: &Options, tier: BootTier) -> Option<&BootTierPaths> {
+    match tier {
+        BootTier::Head => opts
+            .head
+            .as_ref()
+            .or(opts.update.as_ref())
+            .or(opts.base.as_ref()),
+        BootTier::Update => opts.update.as_ref().or(opts.base.as_ref()),
+        BootTier::Base => opts.base.as_ref(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    fn tier(label: &str) -> BootTierPaths {
+        BootTierPaths {
+            kernel: format!("/boot/{label}/vmlinuz"),
+            initramfs: format!("/boot/{label}/initramfs.img"),
+        }
+    }
+
     fn opts() -> Options {
         Options {
-            linux: "/boot/vmlinuz".to_string(),
-            initrd: "/boot/initramfs.img".to_string(),
+            base: Some(tier("base")),
+            update: Some(tier("update")),
+            head: Some(tier("head")),
             store: "/run/layerfs-store".to_string(),
             integrations: Vec::new(),
             extra_cmdline: String::new(),
@@ -171,5 +221,45 @@ mod tests {
     fn no_integrations_flag_when_list_is_empty() {
         let out = render(&opts());
         assert!(!out.contains("layerfs.integrations"));
+    }
+
+    #[test]
+    fn each_entry_uses_its_own_boot_tier() {
+        let out = render(&opts());
+        let normal = out.split("'Fedora Linux' {").nth(1).unwrap();
+        assert!(normal.contains("/boot/head/vmlinuz"));
+
+        let previous = out.split("Previous Update").nth(1).unwrap();
+        assert!(previous.contains("/boot/update/vmlinuz"));
+
+        let base = out.split("Base Recovery").nth(1).unwrap();
+        assert!(base.contains("/boot/base/vmlinuz"));
+    }
+
+    #[test]
+    fn missing_head_falls_back_to_update_then_base() {
+        let mut opts = opts();
+        opts.head = None;
+        let out = render(&opts);
+        let normal = out.split("'Fedora Linux' {").nth(1).unwrap();
+        assert!(normal.contains("/boot/update/vmlinuz"));
+
+        opts.update = None;
+        let out = render(&opts);
+        let normal = out.split("'Fedora Linux' {").nth(1).unwrap();
+        assert!(normal.contains("/boot/base/vmlinuz"));
+    }
+
+    #[test]
+    fn missing_base_skips_base_recovery_entirely() {
+        let mut opts = opts();
+        opts.base = None;
+        let out = render(&opts);
+        assert!(!out.contains("Base Recovery"));
+        // The other four entries fall back to update, since base is gone too.
+        assert_eq!(
+            out.lines().filter(|l| l.starts_with("menuentry")).count(),
+            4
+        );
     }
 }

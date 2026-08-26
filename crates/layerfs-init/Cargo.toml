@@ -27,3 +27,7 @@ path = "examples/overlay_smoke.rs"
 [[example]]
 name = "qemu_smoke_init"
 path = "examples/qemu_smoke_init.rs"
+
+[[example]]
+name = "artifact_marker_init"
+path = "examples/artifact_marker_init.rs"

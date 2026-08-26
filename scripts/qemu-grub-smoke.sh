@@ -19,15 +19,14 @@ for f in "$KERNEL" "$OVERLAY_KO_XZ"; do
     fi
 done
 
-echo "qemu-grub-smoke: building layerfs-grub-entries and qemu_smoke_init"
-cargo build -p layerfs-grub --release
+echo "qemu-grub-smoke: building layerctl, layerfs-grub-entries, and qemu_smoke_init"
+cargo build -p layerctl -p layerfs-grub --release
 cargo build -p layerfs-init --example qemu_smoke_init \
     --target x86_64-unknown-linux-musl --release
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
-# --- throwaway initramfs, same fixture shape as scripts/qemu-smoke.sh ---
 INITRAMFS_ROOT="$WORK/initramfs"
 mkdir -p "$INITRAMFS_ROOT"/{proc,sys,dev,run}
 mkdir -p "$INITRAMFS_ROOT"/store/{base,override,data/home,work}
@@ -44,13 +43,14 @@ echo -n "persisted" > "$INITRAMFS_ROOT/store/data/home/user.txt"
 
 (cd "$INITRAMFS_ROOT" && find . | cpio -o -H newc 2>/dev/null | gzip -9) > "$WORK/initramfs.cpio.gz"
 
-# --- ISO root: GRUB boots this, our entries point at /boot/{vmlinuz,initramfs.cpio.gz} ---
+BOOT_STORE="$WORK/boot-artifacts"
+target/release/layerctl --store "$BOOT_STORE" boot-register base \
+    --kernel "$KERNEL" --initramfs "$WORK/initramfs.cpio.gz"
+
 ISOROOT="$WORK/isoroot"
 mkdir -p "$ISOROOT/boot/grub"
-cp "$KERNEL" "$ISOROOT/boot/vmlinuz"
-cp "$WORK/initramfs.cpio.gz" "$ISOROOT/boot/initramfs.cpio.gz"
+cp -rL "$BOOT_STORE/boot" "$ISOROOT/boot-store"
 
-# entry indices, in the fixed order layerfs-grub-entries emits them
 NORMAL_INDEX=0
 BASE_INDEX=4
 
@@ -61,10 +61,10 @@ render_cfg() {
         echo "set timeout=1"
         echo 'terminal_output console'
         target/release/layerfs-grub-entries \
-            --linux /boot/vmlinuz \
-            --initrd /boot/initramfs.cpio.gz \
+            --boot-store "$BOOT_STORE/boot" \
             --store /store \
-            --extra-cmdline "console=ttyS0"
+            --extra-cmdline "console=ttyS0" \
+        | sed "s|$BOOT_STORE/boot|/boot-store|g"
     } > "$ISOROOT/boot/grub/grub.cfg"
 }
 

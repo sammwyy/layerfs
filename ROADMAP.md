@@ -2138,7 +2138,12 @@ Verify rollback.
 
 Progress:
 
-- [ ] not started
+- [x] `layerfs-storage::boot` — BOOT_BASE/BOOT_UPDATE/BOOT_HEAD generations, reusing the same symlink-swap primitives as root's UPDATE/UPDATE_HEAD (`generations::new_generation_path`/`activate`/`current`); `register()` copies a kernel+initramfs pair into a new generation and atomically activates it
+- [x] `layerctl boot-register <name> --kernel <path> --initramfs <path>` — manual registration primitive; a real kernel-package upgrade inside a system transaction should call the same one, not implemented yet (needs dracut integration to build the new initramfs, out of scope here)
+- [x] `layerfs-grub-entries` resolves kernel/initramfs per entry instead of one path shared by all five: Normal/Safe/System use BOOT_HEAD, Previous Update uses BOOT_UPDATE, Base Recovery uses BOOT_BASE — each falling back to the next lower tier if its own generation is missing, and an entry is skipped entirely (not emitted with a broken path) if no tier resolves at all
+- [x] `layerctl status` now also reports the three boot generations
+- [x] verified for real: `scripts/qemu-boot-artifacts-smoke.sh` registers the real host kernel under two distinguishable initramfs images as BASE and HEAD, generates real GRUB entries, and boots both the Normal and Base Recovery entries under QEMU/KVM — each printed the artifact name baked into the initramfs GRUB actually loaded, proving per-entry selection end to end, not just that the paths look right
+- [ ] not wired into `Transaction::commit` — a kernel-package upgrade doesn't yet automatically register a new boot generation (needs a way to extract the built kernel/initramfs from the transaction root, and initramfs regeneration itself needs dracut, Milestone 9 territory)
 
 Capture:
 

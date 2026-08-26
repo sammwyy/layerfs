@@ -1,4 +1,4 @@
-//! Standalone binary that prints the five LayerFS checkpoint GRUB entries.
+//! Standalone binary that prints the LayerFS checkpoint GRUB entries.
 //!
 //! Installable directly as an executable `/etc/grub.d/` script (e.g.
 //! `41_layerfs`): `grub2-mkconfig` runs every script in that directory and
@@ -8,13 +8,15 @@
 
 mod entries;
 
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use entries::Options;
+use layerfs_storage::boot::{self, BootArtifacts, INITRAMFS_FILENAME, KERNEL_FILENAME};
+
+use entries::{BootTierPaths, Options};
 
 fn main() -> ExitCode {
-    let mut linux = None;
-    let mut initrd = None;
+    let mut boot_store = None;
     let mut store = None;
     let mut integrations = Vec::new();
     let mut extra_cmdline = String::new();
@@ -22,8 +24,7 @@ fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
-            "--linux" => linux = args.next(),
-            "--initrd" => initrd = args.next(),
+            "--boot-store" => boot_store = args.next(),
             "--store" => store = args.next(),
             "--integrations" => {
                 integrations = args
@@ -42,22 +43,36 @@ fn main() -> ExitCode {
         }
     }
 
-    let (Some(linux), Some(initrd), Some(store)) = (linux, initrd, store) else {
+    let (Some(boot_store), Some(store)) = (boot_store, store) else {
         eprintln!(
-            "usage: layerfs-grub-entries --linux <path> --initrd <path> --store <path> [--integrations <a,b>] [--extra-cmdline <params>]"
+            "usage: layerfs-grub-entries --boot-store <path> --store <path> [--integrations <a,b>] [--extra-cmdline <params>]"
         );
         return ExitCode::FAILURE;
     };
 
+    let artifacts = boot::discover(Path::new(&boot_store));
+
     print!(
         "{}",
         entries::render(&Options {
-            linux,
-            initrd,
+            base: tier_paths(&artifacts, |a| &a.base),
+            update: tier_paths(&artifacts, |a| &a.update),
+            head: tier_paths(&artifacts, |a| &a.head),
             store,
             integrations,
             extra_cmdline,
         })
     );
     ExitCode::SUCCESS
+}
+
+fn tier_paths(
+    artifacts: &BootArtifacts,
+    pick: impl Fn(&BootArtifacts) -> &Option<PathBuf>,
+) -> Option<BootTierPaths> {
+    let dir = pick(artifacts).as_ref()?;
+    Some(BootTierPaths {
+        kernel: dir.join(KERNEL_FILENAME).display().to_string(),
+        initramfs: dir.join(INITRAMFS_FILENAME).display().to_string(),
+    })
 }

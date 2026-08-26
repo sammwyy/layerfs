@@ -2,6 +2,7 @@
 //! activated on disk, independent of the OverlayFS assembly logic.
 
 mod backend;
+pub mod boot;
 mod btrfs;
 mod copy_tree;
 mod directory;

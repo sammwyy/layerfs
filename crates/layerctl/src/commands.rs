@@ -9,7 +9,7 @@ use crate::store;
 use crate::walk::{self, EntryKind};
 
 /// Executes a parsed invocation. `status`, `inspect`, `diff`, `reset`,
-/// `verify`, and `transaction` are implemented against a
+/// `verify`, `transaction`, and `boot-register` are implemented against a
 /// `DirectoryBackend`-style store; everything requiring a real
 /// package-manager adapter (`rollback`, `rebuild`, `install`) is still a
 /// stub.
@@ -24,6 +24,11 @@ pub fn run(invocation: Invocation) -> Result<(), String> {
         Command::Reset { path } => reset(&store_root, &path),
         Command::Verify => verify_cmd(&store_root),
         Command::Transaction { program, args } => transaction_cmd(&store_root, &program, &args),
+        Command::BootRegister {
+            name,
+            kernel,
+            initramfs,
+        } => boot_register_cmd(&store_root, &name, &kernel, &initramfs),
         Command::Rollback { target } => todo(&format!("rollback {target}")),
         Command::Rebuild { target } => todo(&format!("rebuild {target}")),
         Command::Checkpoint { name } => todo(&format!("checkpoint {name}")),
@@ -46,7 +51,17 @@ fn status(store_root: &std::path::Path) -> Result<(), String> {
     print_optional("override:", &discovered.r#override);
     print_optional("data:", &discovered.data);
 
+    let boot = layerfs_storage::boot::discover(&boot_store(store_root));
+    println!("boot:");
+    print_optional("  base:", &boot.base);
+    print_optional("  update:", &boot.update);
+    print_optional("  head:", &boot.head);
+
     Ok(())
+}
+
+fn boot_store(store_root: &Path) -> PathBuf {
+    store_root.join("boot")
 }
 
 fn print_optional(label: &str, path: &Option<PathBuf>) {
@@ -168,6 +183,22 @@ fn transaction_cmd(store_root: &Path, program: &str, args: &[String]) -> Result<
     txn.commit().map_err(|e| e.to_string())?;
 
     println!("transaction committed");
+    Ok(())
+}
+
+/// Registers a kernel/initramfs pair as the `name` boot generation
+/// (`base`/`update`/`head`), atomically activating it. A real kernel
+/// package upgrade inside a system transaction should call the same
+/// primitive to keep GRUB pointed at a kernel that matches the rootfs.
+fn boot_register_cmd(
+    store_root: &Path,
+    name: &str,
+    kernel: &Path,
+    initramfs: &Path,
+) -> Result<(), String> {
+    let dest = layerfs_storage::boot::register(&boot_store(store_root), name, kernel, initramfs)
+        .map_err(|e| e.to_string())?;
+    println!("registered {name} -> {}", dest.display());
     Ok(())
 }
 

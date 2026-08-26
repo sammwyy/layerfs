@@ -9,6 +9,7 @@ description = "Generates GRUB checkpoint menu entries; installable as an /etc/gr
 
 [dependencies]
 layerfs-core.workspace = true
+layerfs-storage.workspace = true
 
 [[bin]]
 name = "layerfs-grub-entries"

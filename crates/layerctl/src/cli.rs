@@ -3,14 +3,34 @@ use std::path::PathBuf;
 #[derive(Debug)]
 pub enum Command {
     Status,
-    Inspect { layer: String },
-    Diff { layer: String },
-    Reset { path: PathBuf },
+    Inspect {
+        layer: String,
+    },
+    Diff {
+        layer: String,
+    },
+    Reset {
+        path: PathBuf,
+    },
     Verify,
-    Transaction { program: String, args: Vec<String> },
-    Rollback { target: String },
-    Rebuild { target: String },
-    Checkpoint { name: String },
+    Transaction {
+        program: String,
+        args: Vec<String>,
+    },
+    BootRegister {
+        name: String,
+        kernel: PathBuf,
+        initramfs: PathBuf,
+    },
+    Rollback {
+        target: String,
+    },
+    Rebuild {
+        target: String,
+    },
+    Checkpoint {
+        name: String,
+    },
     Install,
     Doctor,
 }
@@ -77,6 +97,26 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Invocation, CliError>
             Command::Transaction {
                 program,
                 args: rest,
+            }
+        }
+        "boot-register" => {
+            let name = args.next().ok_or(CliError::MissingArgument("name"))?;
+            let mut kernel = None;
+            let mut initramfs = None;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--kernel" => kernel = args.next(),
+                    "--initramfs" => initramfs = args.next(),
+                    other => return Err(CliError::UnknownCommand(other.to_string())),
+                }
+            }
+            let (Some(kernel), Some(initramfs)) = (kernel, initramfs) else {
+                return Err(CliError::MissingArgument("--kernel and --initramfs"));
+            };
+            Command::BootRegister {
+                name,
+                kernel: kernel.into(),
+                initramfs: initramfs.into(),
             }
         }
         "rollback" => Command::Rollback {
