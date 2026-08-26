@@ -8,6 +8,8 @@ pub struct BootOptions {
     pub head: bool,
     pub debug: bool,
     pub store: Option<String>,
+    /// Adapter names to activate for this boot (`layerfs.integrations=dnf,apt`).
+    pub integrations: Vec<String>,
 }
 
 impl Default for BootOptions {
@@ -17,6 +19,7 @@ impl Default for BootOptions {
             head: true,
             debug: false,
             store: None,
+            integrations: Vec::new(),
         }
     }
 }
@@ -40,6 +43,13 @@ impl BootOptions {
                 "layerfs.head" => opts.head = parse_bool(key, value)?,
                 "layerfs.debug" => opts.debug = parse_bool(key, value)?,
                 "layerfs.store" => opts.store = Some(value.to_string()),
+                "layerfs.integrations" => {
+                    opts.integrations = value
+                        .split(',')
+                        .filter(|s| !s.is_empty())
+                        .map(String::from)
+                        .collect()
+                }
                 _ => {}
             }
         }
@@ -80,5 +90,16 @@ mod tests {
     #[test]
     fn rejects_invalid_checkpoint() {
         assert!(BootOptions::parse("layerfs.checkpoint=bogus").is_err());
+    }
+
+    #[test]
+    fn parses_integrations_list() {
+        let opts = BootOptions::parse("layerfs.integrations=dnf,apt").unwrap();
+        assert_eq!(opts.integrations, vec!["dnf", "apt"]);
+    }
+
+    #[test]
+    fn defaults_to_no_integrations() {
+        assert!(BootOptions::parse("").unwrap().integrations.is_empty());
     }
 }

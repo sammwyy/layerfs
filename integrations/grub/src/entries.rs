@@ -8,6 +8,8 @@ pub struct Options {
     pub linux: String,
     pub initrd: String,
     pub store: String,
+    /// Adapter names to activate this boot, e.g. `["dnf", "apt"]`.
+    pub integrations: Vec<String>,
     /// Appended verbatim after the `layerfs.*` parameters on every entry
     /// (e.g. `console=ttyS0` for a serial-only test boot, or distro
     /// parameters like `quiet rhgb`). Empty by default.
@@ -62,6 +64,10 @@ pub fn render(opts: &Options) -> String {
         }
         cmdline.push_str(" layerfs.store=");
         cmdline.push_str(&opts.store);
+        if !opts.integrations.is_empty() {
+            cmdline.push_str(" layerfs.integrations=");
+            cmdline.push_str(&opts.integrations.join(","));
+        }
         if !opts.extra_cmdline.is_empty() {
             cmdline.push(' ');
             cmdline.push_str(&opts.extra_cmdline);
@@ -88,6 +94,7 @@ mod tests {
             linux: "/boot/vmlinuz".to_string(),
             initrd: "/boot/initramfs.img".to_string(),
             store: "/run/layerfs-store".to_string(),
+            integrations: Vec::new(),
             extra_cmdline: String::new(),
         }
     }
@@ -150,5 +157,19 @@ mod tests {
     fn empty_extra_cmdline_adds_no_trailing_space() {
         let out = render(&opts());
         assert!(!out.contains("layerfs-store \n"));
+    }
+
+    #[test]
+    fn integrations_list_is_joined_and_repeated_on_every_entry() {
+        let mut opts = opts();
+        opts.integrations = vec!["dnf".to_string(), "apt".to_string()];
+        let out = render(&opts);
+        assert_eq!(out.matches("layerfs.integrations=dnf,apt").count(), 5);
+    }
+
+    #[test]
+    fn no_integrations_flag_when_list_is_empty() {
+        let out = render(&opts());
+        assert!(!out.contains("layerfs.integrations"));
     }
 }
