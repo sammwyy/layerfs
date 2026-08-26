@@ -1990,7 +1990,10 @@ normal
 
 Progress:
 
-- [ ] not started (`integrations/grub` is a placeholder)
+- [x] generates the five hardcoded checkpoint entries (Normal, Safe Mode, System Only, Previous Update, Base Recovery) as GRUB configuration syntax (`integrations/grub`, binary `layerfs-grub-entries`), installable directly as an executable `/etc/grub.d/` script
+- [x] verified for real: `scripts/qemu-grub-smoke.sh` runs `grub2-script-check` on the generated `grub.cfg`, builds an actual bootable ISO with `grub2-mkrescue`, and boots it under QEMU/KVM — GRUB itself renders the menu, selects an entry, and chainloads the kernel + `layerfs-init` initramfs; checked for both the Normal and Base Recovery entries to prove GRUB is passing distinct `layerfs.checkpoint=` values through correctly, not just parsing without error
+- [ ] not installed into an actual `/etc/grub.d/` (Milestone 9, retrofit installation)
+- [ ] `--linux`/`--initrd` are passed through verbatim rather than discovered from tracked boot artifacts (Milestone 8)
 
 Generate checkpoint entries.
 

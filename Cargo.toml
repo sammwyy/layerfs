@@ -6,6 +6,7 @@ members = [
     "crates/layerfs-transaction",
     "crates/layerfs-init",
     "crates/layerctl",
+    "integrations/grub",
     "xtask",
     "tests/integration",
 ]

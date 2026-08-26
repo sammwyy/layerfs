@@ -51,7 +51,8 @@ crates/
   layerctl               administrative CLI
 
 integrations/
-  dracut, grub, dnf, apt, pacman     distro/init-system glue, not yet implemented
+  grub                   layerfs-grub-entries: generates the checkpoint GRUB menu entries
+  dracut, dnf, apt, pacman     distro/init-system glue, not yet implemented
 
 tests/
   integration    cross-crate filesystem tests
@@ -91,6 +92,18 @@ under `/lib/modules/$(uname -r)`; nothing on the host is modified.
 
 ```bash
 ./scripts/qemu-smoke.sh
+```
+
+`scripts/qemu-grub-smoke.sh` goes one step further: it generates a real
+`grub.cfg` with `layerfs-grub-entries`, checks it with `grub2-script-check`,
+builds an actual bootable ISO (`grub2-mkrescue`), and boots it under
+QEMU/KVM twice — once selecting the Normal entry, once selecting Base
+Recovery — proving GRUB itself renders the menu and passes the right
+`layerfs.checkpoint=` through to the kernel. Needs `grub2-mkrescue` and
+`grub2-script-check` in addition to the tools above.
+
+```bash
+./scripts/qemu-grub-smoke.sh
 ```
 
 ## Initial target

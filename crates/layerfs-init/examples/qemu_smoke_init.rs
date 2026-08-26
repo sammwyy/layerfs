@@ -57,13 +57,6 @@ fn run() -> Result<(), String> {
     let cmdline = fs::read_to_string("/proc/cmdline").map_err(|e| e.to_string())?;
     let opts = BootOptions::parse(&cmdline).map_err(|e| e.to_string())?;
 
-    if opts.checkpoint != Checkpoint::Normal {
-        return Err(format!(
-            "expected checkpoint=normal, got {}",
-            opts.checkpoint
-        ));
-    }
-
     let store = opts
         .store
         .ok_or("no layerfs.store= on the kernel command line")?;
@@ -73,31 +66,54 @@ fn run() -> Result<(), String> {
     let target = Path::new("/run/layerfs/root");
     layerfs_mount::assemble(&stack, &discovered.work, target).map_err(|e| e.to_string())?;
 
-    if let Some(data_root) = &discovered.data {
+    if opts.checkpoint.includes_data()
+        && let Some(data_root) = &discovered.data
+    {
         layerfs_mount::mount_data(data_root, target).map_err(|e| e.to_string())?;
     }
 
-    verify(target)
+    verify(opts.checkpoint, target)
 }
 
-fn verify(target: &Path) -> Result<(), String> {
+/// Checks that what's actually mounted matches what the checkpoint
+/// promises — not just that assembly didn't error. Only `Normal` and
+/// `Base` are meaningfully distinct against the `overlay_smoke`-style
+/// fixture (no UPDATE/UPDATE_HEAD layers are provisioned here).
+fn verify(checkpoint: Checkpoint, target: &Path) -> Result<(), String> {
     let read = |rel: &str| fs::read_to_string(target.join(rel)).map_err(|e| format!("{rel}: {e}"));
 
-    let a = read("a.txt")?;
-    check(
-        a == "modified",
-        "a.txt should read the OVERRIDE copy-up content",
-    )?;
-    check(
-        !target.join("b.txt").exists(),
-        "b.txt should be hidden by the OVERRIDE whiteout",
-    )?;
+    match checkpoint {
+        Checkpoint::Normal => {
+            let a = read("a.txt")?;
+            check(
+                a == "modified",
+                "a.txt should read the OVERRIDE copy-up content",
+            )?;
+            check(
+                !target.join("b.txt").exists(),
+                "b.txt should be hidden by the OVERRIDE whiteout",
+            )?;
 
-    let user = read("home/user.txt")?;
-    check(
-        user == "persisted",
-        "DATA bind mount should expose home/user.txt",
-    )?;
+            let user = read("home/user.txt")?;
+            check(
+                user == "persisted",
+                "DATA bind mount should expose home/user.txt",
+            )?;
+        }
+        Checkpoint::Base => {
+            let a = read("a.txt")?;
+            check(a == "base-a", "base checkpoint should ignore OVERRIDE")?;
+            check(
+                target.join("b.txt").exists(),
+                "base checkpoint should ignore the OVERRIDE whiteout",
+            )?;
+            check(
+                !target.join("home").exists(),
+                "base checkpoint should not mount DATA",
+            )?;
+        }
+        other => return Err(format!("no fixture-based check defined for {other}")),
+    }
 
     Ok(())
 }

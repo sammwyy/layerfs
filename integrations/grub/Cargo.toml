@@ -1,0 +1,15 @@
+[package]
+name = "layerfs-grub"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Generates GRUB checkpoint menu entries; installable as an /etc/grub.d/ script"
+
+[dependencies]
+layerfs-core.workspace = true
+
+[[bin]]
+name = "layerfs-grub-entries"
+path = "src/main.rs"
