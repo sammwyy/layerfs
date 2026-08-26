@@ -83,6 +83,16 @@ unshare --map-root-user --mount -- \
     ./target/debug/examples/overlay_smoke /tmp/some-scratch-dir
 ```
 
+For a stronger check — a real kernel, not a namespace — `scripts/qemu-smoke.sh`
+boots the host's own kernel under QEMU/KVM with `layerfs-init`'s mount logic
+running as `rdinit=/init` in a throwaway initramfs, then powers off. Needs
+`qemu-system-x86_64`, a readable `/boot/vmlinuz-*`, and `overlay.ko(.xz)`
+under `/lib/modules/$(uname -r)`; nothing on the host is modified.
+
+```bash
+./scripts/qemu-smoke.sh
+```
+
 ## Initial target
 
 Fedora, Btrfs, GRUB, dracut, DNF, x86_64, UEFI. Other distributions and

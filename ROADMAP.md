@@ -1895,9 +1895,9 @@ one valid LayerFS system must remain bootable
 Progress:
 
 - [x] Cargo workspace (`crates/`, `xtask/`, `tests/integration/`)
-- [ ] Fedora QEMU image
-- [ ] automated kernel/initramfs boot
-- [~] basic integration-test harness (cross-crate `cargo test` crate + a manual namespaced OverlayFS smoke example; no QEMU harness yet)
+- [~] Fedora QEMU image — no installed Fedora disk image yet, but `scripts/qemu-smoke.sh` boots the real host's kernel (Fedora 42, 6.19.x) under QEMU/KVM against a throwaway initramfs; full installroot-based image is still open
+- [x] automated kernel/initramfs boot — `scripts/qemu-smoke.sh` boots a real kernel with `layerfs-init`'s mount logic as `rdinit=/init`, loads `overlay.ko` by hand (no dracut yet), and powers off via `reboot(2)`, all unattended
+- [x] basic integration-test harness — cross-crate `cargo test` crate, an unprivileged-namespace OverlayFS example, and now a real QEMU boot harness
 
 Build:
 
@@ -1920,7 +1920,7 @@ Progress:
 - [x] OVERRIDE mount (OverlayFS upperdir/workdir path in `layerfs-init::mount::assemble`)
 - [x] OverlayFS assembly (`layerfs-init::mount::assemble`, real `mount(2)` via rustix)
 - [x] copy-up / deletions (whiteouts) / remount persistence — verified against a real kernel OverlayFS mount in an unprivileged user+mount namespace via `cargo run -p layerfs-init --example overlay_smoke`
-- [ ] verified across an actual reboot (needs Milestone 0's QEMU harness)
+- [x] verified against a real kernel boot, not just a namespace — `scripts/qemu-smoke.sh` boots the host kernel under QEMU with `layerfs-init`'s actual `resolve_stack`/`assemble`/`mount_data` running as PID 1
 
 Implement:
 
