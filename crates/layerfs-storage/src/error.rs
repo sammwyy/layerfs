@@ -8,6 +8,9 @@ pub enum StorageError {
     #[error("backend does not support this operation: {0}")]
     Unsupported(&'static str),
 
+    #[error("layer discovery failed: {0}")]
+    Discovery(String),
+
     #[error(transparent)]
     Io(#[from] std::io::Error),
 }

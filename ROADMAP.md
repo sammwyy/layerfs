@@ -1897,7 +1897,7 @@ Progress:
 - [x] Cargo workspace (`crates/`, `xtask/`, `tests/integration/`)
 - [ ] Fedora QEMU image
 - [ ] automated kernel/initramfs boot
-- [~] basic integration-test harness (cross-crate `cargo test` crate exists; no filesystem/QEMU harness yet)
+- [~] basic integration-test harness (cross-crate `cargo test` crate + a manual namespaced OverlayFS smoke example; no QEMU harness yet)
 
 Build:
 
@@ -1916,10 +1916,11 @@ No LayerFS functionality yet.
 
 Progress:
 
-- [ ] BASE mount
-- [ ] OVERRIDE mount
-- [ ] OverlayFS assembly (`layerfs-init::mount::assemble` exists as a stub, returns "not implemented")
-- [ ] copy-up / deletions / whiteouts / reboot verification
+- [x] BASE mount (bind-mount path in `layerfs-init::mount::assemble` for a single read-only layer)
+- [x] OVERRIDE mount (OverlayFS upperdir/workdir path in `layerfs-init::mount::assemble`)
+- [x] OverlayFS assembly (`layerfs-init::mount::assemble`, real `mount(2)` via rustix)
+- [x] copy-up / deletions (whiteouts) / remount persistence — verified against a real kernel OverlayFS mount in an unprivileged user+mount namespace via `cargo run -p layerfs-init --example overlay_smoke`
+- [ ] verified across an actual reboot (needs Milestone 0's QEMU harness)
 
 Implement:
 
@@ -1952,7 +1953,9 @@ Progress:
 - [x] `Checkpoint` enum with numeric/name parsing (`layerfs-core::Checkpoint`)
 - [x] `layerfs.checkpoint` / `layerfs.head` / `layerfs.debug` / `layerfs.store` cmdline parsing (`layerfs-core::BootOptions`)
 - [x] fail-safe rejection of invalid checkpoint values (no silent NORMAL fallback)
-- [ ] UPDATE / UPDATE_HEAD / DATA actually resolved and mounted at boot
+- [x] directory-backend layer discovery (`layerfs-storage::discover`) and checkpoint→stack resolution (`layerfs-init::mount::resolve_stack`), including `head=off` dropping UPDATE_HEAD
+- [ ] DATA mounted alongside the overlay (safe/normal checkpoints)
+- [ ] wired into `main.rs`'s actual boot path end to end (currently reachable only via explicit `layerfs.store=`, not real storage/BASE discovery on a booted machine)
 
 Add:
 

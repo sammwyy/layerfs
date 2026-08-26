@@ -73,6 +73,16 @@ cargo test
 cargo run -p xtask -- init-musl
 ```
 
+OverlayFS assembly needs `CAP_SYS_ADMIN` to mount anything, so it isn't
+covered by `cargo test`. Verify it against a real kernel mount inside an
+unprivileged user+mount namespace instead — never against the host root:
+
+```bash
+cargo build -p layerfs-init --example overlay_smoke
+unshare --map-root-user --mount -- \
+    ./target/debug/examples/overlay_smoke /tmp/some-scratch-dir
+```
+
 ## Initial target
 
 Fedora, Btrfs, GRUB, dracut, DNF, x86_64, UEFI. Other distributions and
