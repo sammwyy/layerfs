@@ -17,10 +17,8 @@ pub enum TransactionError {
     #[error("transaction has not been staged yet")]
     NotStaged,
 
-    #[error(
-        "an active UPDATE_HEAD exists; consolidating it into UPDATE requires layer squashing, which is not implemented yet (milestone 6)"
-    )]
-    SquashRequired,
+    #[error("inconsistent store state: {0}")]
+    InconsistentState(String),
 
     #[error("validation failed: {0}")]
     ValidationFailed(String),

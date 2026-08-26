@@ -2048,7 +2048,7 @@ Progress:
 - [x] failure cleanup: `Transaction`'s `Drop` deletes any staged (uncommitted) generations and unmounts the transaction root — verified for command failure (nonzero exit), validation failure, and the squash-required guard, all leaving the store byte-for-byte unchanged
 - [x] `layerctl transaction -- <program> [args...]` dev command — chroots `program` into the assembled transaction root
 - [x] verified for real (needs `CAP_SYS_ADMIN`/`CAP_SYS_CHROOT`, run under `unshare --map-root-user --mount`): bootstrap transaction commits correctly (symlinks point at frozen, read-only generations; BASE untouched); a second transaction against an active UPDATE_HEAD is refused with a clear message; a failing command and a failing validation both discard cleanly with no trace in `generations/`
-- [ ] squashing an active UPDATE_HEAD into UPDATE.next — blocked on `layerfs_core::squash` (Milestone 6); `stage()` refuses explicitly rather than guessing
+- [x] squashing an active UPDATE_HEAD into UPDATE.next — see Milestone 6; verified with two chained real transactions (second transaction sees and preserves the first's content, correct GC of superseded generations)
 
 Implement:
 
@@ -2076,8 +2076,15 @@ for development only.
 
 Progress:
 
-- [~] `squash()` signature defined (`layerfs-core::squash`), stub returns "not implemented"
-- [ ] whiteouts / opaque directories / xattrs / hardlinks / symlinks / capabilities handling
+- [x] `squash()` implemented for real in `layerfs-storage::squash` (moved from `layerfs-core`, which would otherwise need a circular dependency on `layerfs-storage` for the same whiteout/xattr primitives `copy_tree` already uses)
+- [x] whiteouts and opaque directories handled correctly and recursively: whiteouts/opaque markers from the upper layer are preserved in the squashed output (not resolved away), since the result still needs to hide whatever ends up mounted below it; matching directories merge recursively rather than one side winning wholesale
+- [x] symlinks handled (via `copy_tree`)
+- [ ] xattrs beyond the OverlayFS opaque marker, hardlinks (copied as independent files), capabilities — same tradeoff as the rest of `DirectoryBackend`
+- [ ] a path changing type between the two layers (file→dir or dir→file) is resolved as "upper's type wins outright," not modeled as an implicit whiteout-then-create — real package managers essentially never do this
+- [x] wired into `Transaction::stage`: an active UPDATE_HEAD is now squashed into UPDATE.next instead of blocking the transaction
+- [x] verified for real: 15 unit tests (shadowing, whiteout persistence in both directions, recursive merge, type change) plus 2 more requiring genuine root for `trusted.*` xattrs (`#[ignore]`d — see below) — a fake-root user namespace cannot set `trusted.*` even on a tmpfs it mounted itself, confirmed empirically; the same getxattr/setxattr logic is separately exercised against `user.*` to cover the code path without needing root
+- [x] end-to-end: two chained real `layerctl transaction` runs against an unprivileged namespace, second transaction's UPDATE.next containing the first transaction's squashed content, verified by actually mounting the resulting three-layer stack and reading it back
+- [x] a real bug was found and fixed this way: GC after commit was deleting the (already-repointed) `update`/`update-head` symlink instead of the superseded generation it used to point to
 
 Implement correct:
 

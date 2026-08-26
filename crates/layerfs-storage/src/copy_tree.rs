@@ -1,23 +1,20 @@
 use std::fs;
 use std::io;
-use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::path::Path;
 
-use rustix::fs::{CWD, mknodat};
-use rustix::io::Errno;
+use crate::opaque::{is_opaque, mark_opaque};
+use crate::whiteout::{is_whiteout, write_whiteout};
 
-/// Recursively copies `src` into `dest`, which must not already exist.
-///
-/// Handles the object kinds a `DirectoryBackend` layer actually contains:
-/// directories, regular files, symlinks, and OverlayFS whiteouts (0,0
-/// character devices). Does not preserve xattrs, ACLs, hardlinks, or
-/// opaque-directory markers — a known limitation of the generic backend,
-/// same tradeoff as the rest of `DirectoryBackend` (see section 18).
+/// Recursively copies `src` into `dest` (must not exist): dirs (preserving
+/// opacity), files, symlinks, whiteouts — no other xattrs/ACLs/hardlinks.
 pub fn copy_tree(src: &Path, dest: &Path) -> io::Result<()> {
     let metadata = fs::symlink_metadata(src)?;
 
     if metadata.is_dir() {
         fs::create_dir(dest)?;
+        if is_opaque(src)? {
+            mark_opaque(dest)?;
+        }
         for entry in fs::read_dir(src)? {
             let entry = entry?;
             copy_tree(&entry.path(), &dest.join(entry.file_name()))?;
@@ -25,15 +22,8 @@ pub fn copy_tree(src: &Path, dest: &Path) -> io::Result<()> {
     } else if metadata.file_type().is_symlink() {
         let target = fs::read_link(src)?;
         std::os::unix::fs::symlink(target, dest)?;
-    } else if metadata.file_type().is_char_device() && metadata.rdev() == 0 {
-        mknodat(
-            CWD,
-            dest,
-            rustix::fs::FileType::CharacterDevice,
-            rustix::fs::Mode::empty(),
-            0,
-        )
-        .map_err(errno_to_io)?;
+    } else if is_whiteout(&metadata) {
+        write_whiteout(dest)?;
     } else if metadata.is_file() {
         fs::copy(src, dest)?;
     } else {
@@ -44,10 +34,6 @@ pub fn copy_tree(src: &Path, dest: &Path) -> io::Result<()> {
     }
 
     Ok(())
-}
-
-fn errno_to_io(e: Errno) -> io::Error {
-    e.into()
 }
 
 #[cfg(test)]
@@ -89,20 +75,28 @@ mod tests {
         let src = scratch("wh-src");
         let dest = scratch("wh-dest");
         fs::create_dir_all(&src).unwrap();
-        rustix::fs::mknodat(
-            CWD,
-            src.join("deleted"),
-            rustix::fs::FileType::CharacterDevice,
-            rustix::fs::Mode::empty(),
-            0,
-        )
-        .unwrap();
+        write_whiteout(&src.join("deleted")).unwrap();
 
         copy_tree(&src, &dest).unwrap();
 
         let meta = fs::symlink_metadata(dest.join("deleted")).unwrap();
-        assert!(meta.file_type().is_char_device());
-        assert_eq!(meta.rdev(), 0);
+        assert!(is_whiteout(&meta));
+
+        fs::remove_dir_all(&src).unwrap();
+        fs::remove_dir_all(&dest).unwrap();
+    }
+
+    #[test]
+    #[ignore = "trusted.overlay.opaque requires real root (CAP_SYS_ADMIN in the init user namespace); see opaque.rs"]
+    fn preserves_opaque_marker() {
+        let src = scratch("opaque-src");
+        let dest = scratch("opaque-dest");
+        fs::create_dir_all(src.join("sub")).unwrap();
+        mark_opaque(&src.join("sub")).unwrap();
+
+        copy_tree(&src, &dest).unwrap();
+
+        assert!(is_opaque(&dest.join("sub")).unwrap());
 
         fs::remove_dir_all(&src).unwrap();
         fs::remove_dir_all(&dest).unwrap();

@@ -7,15 +7,8 @@ use rustix::mount::{MountFlags, mount, mount_bind};
 
 use layerfs_core::{DATA_MOUNTS, LayerStack};
 
-/// Mounts a resolved layer stack at `target`.
-///
-/// A stack with a single read-only layer and no upper is bind-mounted
-/// directly. Anything else is assembled as an OverlayFS mount; `work_dir`
-/// is only touched (and must exist) when the stack has a writable upper.
-///
-/// Shared by `layerfs-init` (boot-time root assembly) and
-/// `layerfs-transaction` (system transaction roots) — both need the exact
-/// same mount mechanics, just different `LayerStack`s.
+/// Mounts a resolved layer stack at `target`: bind-mount if it's a single
+/// read-only layer, else an OverlayFS mount (`work_dir` only used then).
 pub fn assemble(stack: &LayerStack, work_dir: &Path, target: &Path) -> io::Result<()> {
     fs::create_dir_all(target)?;
 
@@ -54,10 +47,8 @@ pub fn assemble(stack: &LayerStack, work_dir: &Path, target: &Path) -> io::Resul
     .map_err(io::Error::from)
 }
 
-/// Bind-mounts each present DATA subdirectory (`layerfs_core::DATA_MOUNTS`)
-/// from `data_root` onto the matching path under the assembled `target`.
-/// Missing subdirectories are skipped rather than created — DATA is
-/// irreplaceable and LayerFS must not invent it.
+/// Bind-mounts each present DATA subdirectory onto `target`; missing ones
+/// are skipped, never created — DATA is irreplaceable.
 pub fn mount_data(data_root: &Path, target: &Path) -> io::Result<()> {
     for name in DATA_MOUNTS {
         let source = data_root.join(name);

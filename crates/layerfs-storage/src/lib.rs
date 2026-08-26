@@ -8,11 +8,15 @@ mod directory;
 mod discover;
 mod error;
 pub mod generations;
+mod opaque;
 pub mod overlay;
+pub mod squash;
 pub mod validate;
+mod whiteout;
 
 pub use backend::StorageBackend;
 pub use btrfs::BtrfsBackend;
 pub use directory::DirectoryBackend;
 pub use discover::{DiscoveredStore, discover};
 pub use error::StorageError;
+pub use whiteout::is_whiteout;

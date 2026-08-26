@@ -1,3 +1,4 @@
+use std::fs;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
@@ -17,21 +18,13 @@ struct Staged {
     update_next: PathBuf,
     head_next: PathBuf,
     target: PathBuf,
-    /// UPDATE this generation was cloned from, if any — deleted on commit
-    /// once the new generation is active. `None` for a bootstrap
-    /// transaction (no prior UPDATE existed).
+    /// Generations this transaction supersedes; GC'd on commit.
     superseded_update: Option<PathBuf>,
+    superseded_update_head: Option<PathBuf>,
 }
 
-/// Drives one system transaction: staging → execution → validation →
-/// atomic commit.
-///
-/// Never mutates the active UPDATE/UPDATE_HEAD in place — only the
-/// `.next` generations created by `stage()` are writable, and only
-/// `commit()` may change which generation is active. If a `Transaction`
-/// is dropped without having committed, any staged generations are
-/// deleted so a crash or an early return never leaves the previous
-/// system's bootability in question (section 28).
+/// Drives one system transaction: stage → execute → validate → commit.
+/// An uncommitted `Transaction` deletes its staged generations on drop.
 pub struct Transaction<'a> {
     _lock: TransactionLock,
     backend: &'a dyn StorageBackend,
@@ -66,15 +59,8 @@ impl<'a> Transaction<'a> {
         })
     }
 
-    /// Clones the active UPDATE into a fresh generation, prepares an empty
-    /// writable HEAD.next, and mounts `HEAD.next > UPDATE.next > BASE` at
-    /// `target` inside a private mount namespace — OVERRIDE is never part
-    /// of a system transaction's view (section 13).
-    ///
-    /// An active UPDATE_HEAD blocks staging: consolidating it into
-    /// UPDATE.next requires `layerfs_core::squash`, which is not
-    /// implemented yet (Milestone 6). The very first transaction against a
-    /// fresh store — no UPDATE or UPDATE_HEAD yet — is unaffected.
+    /// Builds UPDATE.next/HEAD.next and mounts them over BASE at `target`
+    /// in a private mount namespace — OVERRIDE is never part of a transaction.
     pub fn stage(&mut self, target: impl Into<PathBuf>) -> Result<(), TransactionError> {
         if self.staged.is_some() {
             return Err(TransactionError::AlreadyStaged);
@@ -82,23 +68,30 @@ impl<'a> Transaction<'a> {
 
         let discovered = discover(&self.store_root)?;
 
-        if discovered.update_head.is_some() {
-            return Err(TransactionError::SquashRequired);
-        }
-
         let update_next =
             layerfs_storage::generations::new_generation_path(&self.store_root, "update")?;
-        match &discovered.update {
-            Some(active_update) => self.backend.clone_layer(active_update, &update_next)?,
-            None => self.backend.prepare_layer(&update_next, None)?,
+        match (&discovered.update, &discovered.update_head) {
+            (Some(active_update), Some(active_head)) => {
+                layerfs_storage::squash::squash(active_update, active_head, &update_next)?;
+            }
+            (Some(active_update), None) => {
+                self.backend.clone_layer(active_update, &update_next)?;
+            }
+            (None, Some(_)) => {
+                return Err(TransactionError::InconsistentState(
+                    "update-head is active without an active update".to_string(),
+                ));
+            }
+            (None, None) => {
+                self.backend.prepare_layer(&update_next, None)?;
+            }
         }
 
         let head_next =
             layerfs_storage::generations::new_generation_path(&self.store_root, "head")?;
         self.backend.prepare_layer(&head_next, None)?;
 
-        // SAFETY: only NEWNS is requested; we don't use CLONE_FILES/CLONE_FS,
-        // the flags unshare_unsafe's docs warn about.
+        // SAFETY: only NEWNS is requested, not the FILES/FS flags this fn warns about.
         unsafe { unshare_unsafe(UnshareFlags::NEWNS) }
             .map_err(|e| TransactionError::Namespace(e.to_string()))?;
 
@@ -125,27 +118,30 @@ impl<'a> Transaction<'a> {
         let target = target.into();
         layerfs_storage::overlay::assemble(&stack, &discovered.work, &target)?;
 
+        // Resolve now: these are symlink paths, and activate() below
+        // repoints them, so GC must target the old generation, not the symlink.
+        let superseded_update = resolve_symlink(discovered.update.as_deref())?;
+        let superseded_update_head = resolve_symlink(discovered.update_head.as_deref())?;
+
         self.record.state = TransactionState::Running;
         self.staged = Some(Staged {
             update_next,
             head_next,
             target,
-            superseded_update: discovered.update,
+            superseded_update,
+            superseded_update_head,
         });
 
         Ok(())
     }
 
-    /// Runs `program` with `args` inside the staged transaction root,
-    /// chrooted so it cannot see anything outside the assembled
-    /// `HEAD.next > UPDATE.next > BASE` view — for development, in place
-    /// of a real package-manager adapter (section 12).
+    /// Runs `program` chrooted into the staged transaction root — for
+    /// development, in place of a real package-manager adapter.
     pub fn execute(&self, program: &str, args: &[String]) -> Result<ExitStatus, TransactionError> {
         let staged = self.staged.as_ref().ok_or(TransactionError::NotStaged)?;
         let target = staged.target.clone();
 
-        // SAFETY: chroot+chdir are async-signal-safe syscalls with no
-        // allocation; this closure runs in the forked child before exec.
+        // SAFETY: chroot+chdir run in the forked child before exec.
         unsafe {
             Command::new(program)
                 .args(args)
@@ -178,10 +174,8 @@ impl<'a> Transaction<'a> {
         Ok(())
     }
 
-    /// Unmounts the transaction root, freezes the staged generations, and
-    /// atomically activates them as the new UPDATE/UPDATE_HEAD — the only
-    /// step allowed to change what is active. Garbage-collects the
-    /// superseded UPDATE generation, if any.
+    /// Freezes and atomically activates the staged generations, then GCs
+    /// whatever they superseded.
     pub fn commit(&mut self) -> Result<(), TransactionError> {
         let staged = self.staged.take().ok_or(TransactionError::NotStaged)?;
         self.record.state = TransactionState::Committing;
@@ -196,6 +190,9 @@ impl<'a> Transaction<'a> {
 
         if let Some(old_update) = staged.superseded_update {
             let _ = self.backend.delete_layer(&old_update);
+        }
+        if let Some(old_head) = staged.superseded_update_head {
+            let _ = self.backend.delete_layer(&old_head);
         }
 
         self.record.state = TransactionState::Committed;
@@ -219,4 +216,10 @@ impl Drop for Transaction<'_> {
 
 fn discover(store_root: &Path) -> Result<DiscoveredStore, TransactionError> {
     layerfs_storage::discover(store_root).map_err(TransactionError::from)
+}
+
+fn resolve_symlink(path: Option<&Path>) -> Result<Option<PathBuf>, TransactionError> {
+    path.map(fs::canonicalize)
+        .transpose()
+        .map_err(TransactionError::from)
 }
