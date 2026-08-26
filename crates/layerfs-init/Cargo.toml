@@ -1,0 +1,16 @@
+[package]
+name = "layerfs-init"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Early-userspace root assembly binary run from the initramfs"
+
+[dependencies]
+layerfs-core.workspace = true
+rustix.workspace = true
+
+[[bin]]
+name = "layerfs-init"
+path = "src/main.rs"

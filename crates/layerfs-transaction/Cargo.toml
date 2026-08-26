@@ -1,0 +1,15 @@
+[package]
+name = "layerfs-transaction"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "System transaction lifecycle: locking, staging, and crash-safe commit"
+
+[dependencies]
+layerfs-core.workspace = true
+layerfs-storage.workspace = true
+rustix.workspace = true
+serde.workspace = true
+thiserror.workspace = true

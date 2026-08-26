@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/layerfs-core",
+    "crates/layerfs-storage",
+    "crates/layerfs-transaction",
+    "crates/layerfs-init",
+    "crates/layerctl",
+    "xtask",
+    "tests/integration",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["Sammwy"]
+repository = "https://github.com/sammwyy/layerfs"
+
+[workspace.dependencies]
+layerfs-core = { path = "crates/layerfs-core" }
+layerfs-storage = { path = "crates/layerfs-storage" }
+layerfs-transaction = { path = "crates/layerfs-transaction" }
+rustix = { version = "1", features = ["mount", "fs", "process", "system"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+lexopt = "0.3"
+
+[profile.release]
+lto = true
+strip = true

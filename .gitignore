@@ -1,0 +1,4 @@
+/target
+/tests/qemu/images
+*.qcow2
+*.img

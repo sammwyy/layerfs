@@ -1,0 +1,12 @@
+[package]
+name = "layerfs-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Storage backend abstraction over layer trees (Btrfs, plain directories)"
+
+[dependencies]
+layerfs-core.workspace = true
+thiserror.workspace = true
