@@ -1,4 +1,32 @@
 # DNF adapter (layerfs-dnf)
 
-Routes mutating DNF operations (install/remove/upgrade/distro-sync) through
-a LayerFS system transaction. Not implemented yet — see ROADMAP.md section 12.
+Stands in for `dnf` itself so `sudo dnf install foo` transparently becomes
+a LayerFS system transaction. Not a wrapper script or a DNF plugin — DNF's
+Python plugin hooks fire from inside an already-running `dnf` process,
+after it's already writing to the live root, too late to chroot it into an
+isolated view. Interception has to happen at process start.
+
+Every argument is passed straight through to the real `dnf`; control comes
+from environment variables only, so nothing collides with dnf's own flags:
+
+```text
+LAYERFS_DNF_BIN   path to the real dnf binary (default: "dnf")
+LAYERFS_STORE     store root (default: /run/layerfs-store)
+```
+
+`layerfs_dnf::classify::is_mutating` decides whether an invocation needs a
+transaction: an explicit allowlist of read-only verbs (`search`, `info`,
+`list`, ...) runs directly against the live system; everything else,
+including unrecognized verbs, is treated as mutating — a wasted empty
+transaction is harmless, skipping a real one is not. `--downloadonly`
+overrides this back to read-only regardless of verb, since it only
+populates the cache.
+
+Not built by `cargo build` (see the workspace's `default-members`) — build
+with `cargo build -p layerfs-dnf` or `cargo build --workspace`. Future
+adapters (`layerfs-apt`, `layerfs-pacman`) should follow the same pattern:
+their own crate under `integrations/`, opted into explicitly.
+
+Not yet installed over a real `/usr/bin/dnf` (Milestone 9, retrofit
+installation) or tested against a real package transaction — see
+ROADMAP.md's Milestone 7 notes for what's verified so far.

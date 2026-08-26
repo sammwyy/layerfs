@@ -1,0 +1,16 @@
+[package]
+name = "layerfs-dnf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "DNF adapter: routes mutating DNF operations through a LayerFS system transaction"
+
+[dependencies]
+layerfs-storage.workspace = true
+layerfs-transaction.workspace = true
+
+[[bin]]
+name = "layerfs-dnf"
+path = "src/main.rs"

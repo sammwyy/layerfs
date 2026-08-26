@@ -2112,7 +2112,13 @@ This is one of the most critical correctness milestones.
 
 Progress:
 
-- [ ] not started (`integrations/dnf` is a placeholder)
+- [x] adapter binary (`integrations/dnf`, `layerfs-dnf`) meant to stand in for `dnf` itself: control via `LAYERFS_DNF_BIN`/`LAYERFS_STORE` env vars only, so argv is passed through untouched and never collides with dnf's own flags
+- [x] classification (`classify::is_mutating`): explicit read-only-verb allowlist (`search`/`info`/`list`/...), everything else defaults to mutating; `--downloadonly` forces read-only regardless of verb since it only populates the cache — 7 unit tests
+- [x] read-only path: `exec`s the real `dnf` directly, replacing the process, no LayerFS involvement at all
+- [x] mutating path: drives the real `Transaction` engine from Milestone 5/6 (stage → chrooted execute → validate → commit), propagating dnf's real exit code
+- [x] built as a separate, optional crate: excluded from the workspace's `default-members`, so plain `cargo build` stays distro-agnostic; `apt`/`pacman` adapters should follow the same pattern
+- [x] verified for real (unprivileged namespace + a musl stand-in binary in place of dnf, since a full Fedora installroot is out of scope here): a mutating verb stages a transaction and the stand-in's write lands in the new UPDATE_HEAD; a read-only verb and `install --downloadonly` both create zero new generations
+- [ ] not installed over a real `/usr/bin/dnf` (Milestone 9) or exercised against an actual `dnf` transaction against a real Fedora root — no realistic BASE fixture exists yet for that
 
 Make Fedora package transactions use LayerFS.
 

@@ -52,7 +52,8 @@ crates/
 
 integrations/
   grub                   layerfs-grub-entries: generates the checkpoint GRUB menu entries
-  dracut, dnf, apt, pacman     distro/init-system glue, not yet implemented
+  dnf                    layerfs-dnf: routes mutating dnf operations through a system transaction
+  dracut, apt, pacman     distro/init-system glue, not yet implemented
 
 tests/
   integration    cross-crate filesystem tests
@@ -66,6 +67,16 @@ xtask/           developer task runner (musl builds, etc.)
 ```bash
 cargo build
 cargo test
+```
+
+Distro/package-manager integrations (`integrations/grub`, `integrations/dnf`,
+...) are separate crates excluded from the workspace's `default-members`, so
+the commands above stay distro-agnostic. Build one explicitly, or build
+everything with `--workspace`:
+
+```bash
+cargo build -p layerfs-dnf
+cargo build --workspace
 ```
 
 `layerfs-init` is intended for static musl builds:

@@ -44,6 +44,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "layerfs-dnf"
+version = "0.1.0"
+dependencies = [
+ "layerfs-storage",
+ "layerfs-transaction",
+]
+
+[[package]]
 name = "layerfs-grub"
 version = "0.1.0"
 dependencies = [

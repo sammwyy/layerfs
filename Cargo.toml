@@ -7,6 +7,19 @@ members = [
     "crates/layerfs-init",
     "crates/layerctl",
     "integrations/grub",
+    "integrations/dnf",
+    "xtask",
+    "tests/integration",
+]
+# Distro/package-manager integrations opt in explicitly (`-p layerfs-dnf`,
+# `cargo build --workspace`, ...) rather than building with plain `cargo
+# build` — the core system stays distro-agnostic by default.
+default-members = [
+    "crates/layerfs-core",
+    "crates/layerfs-storage",
+    "crates/layerfs-transaction",
+    "crates/layerfs-init",
+    "crates/layerctl",
     "xtask",
     "tests/integration",
 ]
