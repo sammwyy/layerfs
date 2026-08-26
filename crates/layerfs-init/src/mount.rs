@@ -96,6 +96,25 @@ pub fn assemble(stack: &LayerStack, work_dir: &Path, target: &Path) -> io::Resul
     .map_err(io::Error::from)
 }
 
+/// Bind-mounts each present DATA subdirectory (`layerfs_core::DATA_MOUNTS`)
+/// from `data_root` onto the matching path under the assembled `target`.
+/// Missing subdirectories are skipped rather than created — DATA is
+/// irreplaceable and LayerFS must not invent it.
+pub fn mount_data(data_root: &Path, target: &Path) -> io::Result<()> {
+    for name in layerfs_core::DATA_MOUNTS {
+        let source = data_root.join(name);
+        if !source.is_dir() {
+            continue;
+        }
+
+        let dest = target.join(name);
+        fs::create_dir_all(&dest)?;
+        mount_bind(&source, &dest)?;
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -108,7 +127,7 @@ mod tests {
             update: Some(PathBuf::from("/store/update")),
             update_head: Some(PathBuf::from("/store/update-head")),
             r#override: Some(PathBuf::from("/store/override")),
-            data: vec![],
+            data: None,
             work: PathBuf::from("/store/work"),
         }
     }

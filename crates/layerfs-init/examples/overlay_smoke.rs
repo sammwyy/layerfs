@@ -38,12 +38,15 @@ fn main() -> ExitCode {
 fn run(root: &Path) -> Result<(), String> {
     let base = root.join("base");
     let over = root.join("override");
+    let data = root.join("data");
     let merged = root.join("merged");
 
     fs::create_dir_all(&base).map_err(|e| e.to_string())?;
     fs::create_dir_all(&over).map_err(|e| e.to_string())?;
+    fs::create_dir_all(data.join("home")).map_err(|e| e.to_string())?;
     fs::write(base.join("a.txt"), "base-a").map_err(|e| e.to_string())?;
     fs::write(base.join("b.txt"), "base-b").map_err(|e| e.to_string())?;
+    fs::write(data.join("home/user.txt"), "persisted").map_err(|e| e.to_string())?;
 
     let discovered = layerfs_storage::discover(root).map_err(|e| e.to_string())?;
 
@@ -68,6 +71,21 @@ fn run(root: &Path) -> Result<(), String> {
         merged.join("c.txt").exists(),
         "c.txt should exist as a new override file",
     )?;
+
+    // DATA is a plain bind mount, not an overlay layer: writes through the
+    // assembled root land directly in the backing DATA store.
+    mount::mount_data(&data, &merged).map_err(|e| e.to_string())?;
+    let home_user = fs::read_to_string(merged.join("home/user.txt")).map_err(|e| e.to_string())?;
+    check(
+        home_user == "persisted",
+        "DATA bind mount should expose existing content",
+    )?;
+    fs::write(merged.join("home/new.txt"), "written-through").map_err(|e| e.to_string())?;
+    check(
+        data.join("home/new.txt").exists(),
+        "writes through the DATA bind mount should land in the backing store directly",
+    )?;
+    unmount(merged.join("home"), UnmountFlags::empty()).map_err(|e| e.to_string())?;
 
     unmount(&merged, UnmountFlags::empty()).map_err(|e| e.to_string())?;
 

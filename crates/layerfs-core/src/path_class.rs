@@ -9,13 +9,18 @@ pub enum PathClass {
     Data,
 }
 
-const DATA_PREFIXES: &[&str] = &["/home", "/root", "/srv"];
+/// Root-relative names of the persistent DATA mount points, without a
+/// leading slash. The same list drives both `classify()` and the DATA
+/// bind-mount plan built during root assembly.
+pub const DATA_MOUNTS: &[&str] = &["home", "root", "srv"];
 
 pub fn classify(path: &str) -> PathClass {
-    if DATA_PREFIXES
-        .iter()
-        .any(|prefix| path == *prefix || path.starts_with(&format!("{prefix}/")))
-    {
+    let is_data = DATA_MOUNTS.iter().any(|name| {
+        let prefix = format!("/{name}");
+        path == prefix || path.starts_with(&format!("{prefix}/"))
+    });
+
+    if is_data {
         PathClass::Data
     } else {
         PathClass::System

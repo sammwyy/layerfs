@@ -38,10 +38,17 @@ fn main() {
     let stack = mount::resolve_stack(opts.checkpoint, opts.head, &discovered);
 
     // TODO: target should be /sysroot once this runs inside a real
-    // initramfs; DATA mounts and switch_root are not implemented yet.
+    // initramfs; switch_root is not implemented yet.
     let target = Path::new("/run/layerfs/root");
     if let Err(e) = mount::assemble(&stack, &discovered.work, target) {
         log::fatal(&format!("root assembly failed: {e}"));
+    }
+
+    if opts.checkpoint.includes_data()
+        && let Some(data_root) = &discovered.data
+        && let Err(e) = mount::mount_data(data_root, target)
+    {
+        log::fatal(&format!("DATA mount failed: {e}"));
     }
 
     log::info(&format!("mounted at {}", target.display()));

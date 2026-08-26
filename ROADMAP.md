@@ -1954,8 +1954,9 @@ Progress:
 - [x] `layerfs.checkpoint` / `layerfs.head` / `layerfs.debug` / `layerfs.store` cmdline parsing (`layerfs-core::BootOptions`)
 - [x] fail-safe rejection of invalid checkpoint values (no silent NORMAL fallback)
 - [x] directory-backend layer discovery (`layerfs-storage::discover`) and checkpoint→stack resolution (`layerfs-init::mount::resolve_stack`), including `head=off` dropping UPDATE_HEAD
-- [ ] DATA mounted alongside the overlay (safe/normal checkpoints)
+- [x] DATA bind-mounted alongside the overlay for `safe`/`normal` (`layerfs-init::mount::mount_data`, `layerfs_core::DATA_MOUNTS`); verified end to end (existing content visible, writes land in the backing store, correct nested unmount order) via `overlay_smoke`
 - [ ] wired into `main.rs`'s actual boot path end to end (currently reachable only via explicit `layerfs.store=`, not real storage/BASE discovery on a booted machine)
+- [ ] `switch_root` (Milestone 8/boot-artifact territory — deliberately out of scope here)
 
 Add:
 

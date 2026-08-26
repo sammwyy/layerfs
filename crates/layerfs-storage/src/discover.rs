@@ -10,7 +10,10 @@ pub struct DiscoveredStore {
     pub update: Option<PathBuf>,
     pub update_head: Option<PathBuf>,
     pub r#override: Option<PathBuf>,
-    pub data: Vec<PathBuf>,
+    /// Root of the persistent DATA store, if present. Contains the
+    /// individual mount points listed in `layerfs_core::DATA_MOUNTS`
+    /// (e.g. `<data>/home`), not the assembled root's paths directly.
+    pub data: Option<PathBuf>,
     /// Workdir for OverlayFS, required alongside any upperdir. Not part of
     /// the layout in the design notes; added because overlay mounts need
     /// it and it must live on the same filesystem as `override`.
@@ -29,14 +32,12 @@ pub fn discover(root: &Path) -> Result<DiscoveredStore, StorageError> {
         StorageError::Discovery(format!("no base layer found under {}", root.display()))
     })?;
 
-    let data = present("data").map(|dir| vec![dir]).unwrap_or_default();
-
     Ok(DiscoveredStore {
         base,
         update: present("update"),
         update_head: present("update-head"),
         r#override: present("override"),
-        data,
+        data: present("data"),
         work: root.join("work"),
     })
 }
