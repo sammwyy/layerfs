@@ -1,13 +1,14 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use layerfs_storage::StorageBackend;
 use layerfs_transaction::{Transaction, TransactionLock};
 
 use crate::cli::{Bootloader, Command, Invocation};
 use crate::store;
 use crate::walk::{self, EntryKind};
 
-/// Executes a parsed invocation; `rebuild` and `checkpoint` are stubs.
+/// Executes a parsed invocation.
 pub fn run(invocation: Invocation) -> Result<(), String> {
     let Invocation { store, command } = invocation;
     let store_root = crate::store::resolve(&store);
@@ -25,7 +26,7 @@ pub fn run(invocation: Invocation) -> Result<(), String> {
             initramfs,
         } => boot_register_cmd(&store_root, &name, &kernel, &initramfs),
         Command::Rollback { target } => rollback_cmd(&store_root, &target),
-        Command::Rebuild { target } => todo(&format!("rebuild {target}")),
+        Command::Rebuild { target } => rebuild_cmd(&store_root, &target),
         Command::Checkpoint {
             name,
             bootloader,
@@ -48,10 +49,6 @@ pub fn run(invocation: Invocation) -> Result<(), String> {
         Command::ApplyNow { live_root } => apply_now_cmd(&store_root, &live_root),
         Command::Doctor => crate::doctor::run(&store_root),
     }
-}
-
-fn todo(action: &str) -> Result<(), String> {
-    Err(format!("layerctl {action}: not implemented yet"))
 }
 
 fn status(store_root: &std::path::Path) -> Result<(), String> {
@@ -240,6 +237,82 @@ fn rollback_cmd(store_root: &Path, target: &str) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
 
     println!("rolled back: update-head discarded, now booting base+update only");
+    Ok(())
+}
+
+/// Discards UPDATE/UPDATE_HEAD and replays every committed transaction in
+/// `manifest.log` against BASE from scratch.
+fn rebuild_cmd(store_root: &Path, target: &str) -> Result<(), String> {
+    if target != "updates" {
+        return Err(format!(
+            "unknown rebuild target: {target} (only \"updates\" is valid)"
+        ));
+    }
+
+    let entries = layerfs_transaction::manifest::read(store_root).map_err(|e| e.to_string())?;
+    let backend = layerfs_storage::detect_backend(store_root);
+
+    {
+        let _lock = TransactionLock::acquire(&store_root.join("transaction.lock"))
+            .map_err(|e| e.to_string())?;
+        discard_updates(store_root, backend.as_ref())?;
+    }
+
+    for (i, entry) in entries.iter().enumerate() {
+        replay_entry(store_root, backend.as_ref(), entry).map_err(|e| {
+            format!(
+                "rebuild: replay {}/{} ({} {:?}) failed: {e}",
+                i + 1,
+                entries.len(),
+                entry.program,
+                entry.args
+            )
+        })?;
+    }
+
+    println!(
+        "rebuilt updates from base, replayed {} transactions",
+        entries.len()
+    );
+    Ok(())
+}
+
+fn discard_updates(store_root: &Path, backend: &dyn StorageBackend) -> Result<(), String> {
+    let discovered = store::discover_layers(store_root)?;
+    if let Some(head) = discovered.update_head {
+        let resolved = std::fs::canonicalize(&head).map_err(|e| e.to_string())?;
+        std::fs::remove_file(store_root.join("update-head")).map_err(|e| e.to_string())?;
+        let _ = backend.delete_layer(&resolved);
+    }
+    if let Some(update) = discovered.update {
+        let resolved = std::fs::canonicalize(&update).map_err(|e| e.to_string())?;
+        std::fs::remove_file(store_root.join("update")).map_err(|e| e.to_string())?;
+        let _ = backend.delete_layer(&resolved);
+    }
+    Ok(())
+}
+
+fn replay_entry(
+    store_root: &Path,
+    backend: &dyn StorageBackend,
+    entry: &layerfs_transaction::TransactionRecord,
+) -> Result<(), String> {
+    let mut txn = Transaction::begin(store_root, backend, transaction_id(), entry.adapter.clone())
+        .map_err(|e| e.to_string())?;
+    txn.skip_manifest();
+
+    let target = store_root.join("transaction-root");
+    txn.stage(&target).map_err(|e| e.to_string())?;
+
+    let status = txn
+        .execute(&entry.program, &entry.args)
+        .map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err(format!("{} exited with {status}", entry.program));
+    }
+
+    txn.validate().map_err(|e| e.to_string())?;
+    txn.commit().map_err(|e| e.to_string())?;
     Ok(())
 }
 

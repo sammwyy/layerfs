@@ -31,6 +31,7 @@ pub struct Transaction<'a> {
     store_root: PathBuf,
     record: TransactionRecord,
     staged: Option<Staged>,
+    record_manifest: bool,
 }
 
 impl<'a> Transaction<'a> {
@@ -48,6 +49,8 @@ impl<'a> Transaction<'a> {
             started_at_unix: 0,
             adapter: adapter.into(),
             state: TransactionState::Preparing,
+            program: String::new(),
+            args: Vec::new(),
         };
 
         Ok(Self {
@@ -56,7 +59,14 @@ impl<'a> Transaction<'a> {
             store_root,
             record,
             staged: None,
+            record_manifest: true,
         })
+    }
+
+    /// Skips appending to `manifest.log` on commit — for replaying an
+    /// already-recorded entry (`layerctl rebuild`) without duplicating it.
+    pub fn skip_manifest(&mut self) {
+        self.record_manifest = false;
     }
 
     /// Builds UPDATE.next/HEAD.next and mounts them over BASE at `target`
@@ -138,9 +148,15 @@ impl<'a> Transaction<'a> {
 
     /// Runs `program` chrooted into the staged transaction root — for
     /// development, in place of a real package-manager adapter.
-    pub fn execute(&self, program: &str, args: &[String]) -> Result<ExitStatus, TransactionError> {
+    pub fn execute(
+        &mut self,
+        program: &str,
+        args: &[String],
+    ) -> Result<ExitStatus, TransactionError> {
         let staged = self.staged.as_ref().ok_or(TransactionError::NotStaged)?;
         let target = staged.target.clone();
+        self.record.program = program.to_string();
+        self.record.args = args.to_vec();
 
         // SAFETY: chroot+chdir run in the forked child before exec.
         unsafe {
@@ -198,6 +214,9 @@ impl<'a> Transaction<'a> {
         }
 
         self.record.state = TransactionState::Committed;
+        if self.record_manifest {
+            let _ = crate::manifest::append(&self.store_root, &self.record);
+        }
         Ok(())
     }
 }
