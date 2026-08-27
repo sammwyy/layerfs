@@ -19,6 +19,8 @@ pub struct Options {
     /// (e.g. `console=ttyS0` for a serial-only test boot, or distro
     /// parameters like `quiet rhgb`). Empty by default.
     pub extra_cmdline: String,
+    /// Initramfs program selected through `rdinit`, when LayerFS owns it.
+    pub rdinit: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -99,6 +101,10 @@ pub fn render(opts: &Options) -> String {
             cmdline.push(' ');
             cmdline.push_str(&opts.extra_cmdline);
         }
+        if let Some(rdinit) = &opts.rdinit {
+            cmdline.push_str(" rdinit=");
+            cmdline.push_str(rdinit);
+        }
 
         out.push_str(&format!(
             "menuentry '{title}' {{\n    linux {linux} {cmdline}\n    initrd {initrd}\n}}\n",
@@ -146,6 +152,7 @@ mod tests {
             store: "/run/layerfs-store".to_string(),
             integrations: Vec::new(),
             extra_cmdline: String::new(),
+            rdinit: None,
         }
     }
 
@@ -207,6 +214,14 @@ mod tests {
     fn empty_extra_cmdline_adds_no_trailing_space() {
         let out = render(&opts());
         assert!(!out.contains("layerfs-store \n"));
+    }
+
+    #[test]
+    fn rdinit_is_repeated_on_every_entry() {
+        let mut opts = opts();
+        opts.rdinit = Some("/sbin/layerfs-init".to_string());
+        let out = render(&opts);
+        assert_eq!(out.matches("rdinit=/sbin/layerfs-init").count(), 5);
     }
 
     #[test]

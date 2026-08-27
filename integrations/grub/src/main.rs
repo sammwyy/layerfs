@@ -20,6 +20,7 @@ fn main() -> ExitCode {
     let mut store = None;
     let mut integrations = Vec::new();
     let mut extra_cmdline = String::new();
+    let mut rdinit = None;
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -36,6 +37,7 @@ fn main() -> ExitCode {
                     .collect();
             }
             "--extra-cmdline" => extra_cmdline = args.next().unwrap_or_default(),
+            "--rdinit" => rdinit = args.next(),
             other => {
                 eprintln!("layerfs-grub-entries: unknown argument '{other}'");
                 return ExitCode::FAILURE;
@@ -61,6 +63,7 @@ fn main() -> ExitCode {
             store,
             integrations,
             extra_cmdline,
+            rdinit,
         })
     );
     ExitCode::SUCCESS

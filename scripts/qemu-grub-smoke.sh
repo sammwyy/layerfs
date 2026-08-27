@@ -63,6 +63,7 @@ render_cfg() {
         target/release/layerfs-grub-entries \
             --boot-store "$BOOT_STORE/boot" \
             --store /store \
+            --rdinit /init \
             --extra-cmdline "console=ttyS0" \
         | sed "s|$BOOT_STORE/boot|/boot-store|g"
     } > "$ISOROOT/boot/grub/grub.cfg"
