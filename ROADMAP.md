@@ -2123,7 +2123,8 @@ Progress:
 - [x] control via `LAYERFS_<NAME>_BIN`/`LAYERFS_STORE` env vars only, so argv is passed through untouched and never collides with the wrapped binary's own flags
 - [x] built as separate, optional crates: `integrations/dnf` (and future `integrations/apt`, `integrations/pacman`) are excluded from the workspace's `default-members`, so plain `cargo build` stays distro-agnostic; `layerfs-adapter` itself is a normal default member since it's core, not distro glue
 - [x] verified for real (unprivileged namespace + a musl stand-in binary in place of dnf, since a full Fedora installroot is out of scope here): a mutating verb stages a transaction and the stand-in's write lands in the new UPDATE_HEAD; a read-only verb and `install --downloadonly` both create zero new generations
-- [ ] not installed over a real `/usr/bin/dnf` (Milestone 9) or exercised against an actual `dnf` transaction against a real Fedora root — no realistic BASE fixture exists yet for that
+- [x] exercised against an actual `dnf` transaction against a real Fedora root: `scripts/dnf-adapter-smoke.sh` bootstraps a minimal Fedora 42 base with real `dnf --installroot`, installs it as a LayerFS store, then runs the real `layerfs-dnf` binary (`LAYERFS_DNF_BIN`/`LAYERFS_STORE`/`LAYERFS_LAYERCTL_BIN` pointed at the real `dnf` and built `layerctl`) to `install which` — the actual `dnf` resolver/downloader/RPM transaction runs chrooted into the staged transaction root, commits into a fresh `UPDATE_HEAD`, and leaves the base layer untouched
+- [ ] not installed over a real `/usr/bin/dnf` via `layerctl install --integrations dnf` end to end (Milestone 9's `--integrations` activation is implemented and unit-tested, but not chained into this same real-`dnf` smoke test)
 
 Make Fedora package transactions use LayerFS.
 
