@@ -187,6 +187,26 @@ fn transaction_cmd(store_root: &Path, program: &str, args: &[String]) -> Result<
     txn.commit().map_err(|e| e.to_string())?;
 
     println!("transaction committed");
+    register_new_kernel(store_root)?;
+    Ok(())
+}
+
+/// If this transaction wrote a new kernel/initramfs into `/boot`, registers
+/// it as the new `head` boot generation — the transactional-boot-artifacts
+/// counterpart to the root `UPDATE_HEAD` this same transaction just
+/// committed. A no-op for any transaction that didn't touch `/boot`.
+fn register_new_kernel(store_root: &Path) -> Result<(), String> {
+    let Some(update_head) = store::discover_layers(store_root)?.update_head else {
+        return Ok(());
+    };
+    let Some((kernel, initramfs)) = layerfs_storage::boot::find_new_kernel(&update_head) else {
+        return Ok(());
+    };
+
+    let dest =
+        layerfs_storage::boot::register(&boot_store(store_root), "head", &kernel, &initramfs)
+            .map_err(|e| e.to_string())?;
+    println!("registered boot generation: {}", dest.display());
     Ok(())
 }
 

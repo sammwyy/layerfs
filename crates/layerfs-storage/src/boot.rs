@@ -25,6 +25,29 @@ pub fn discover(boot_store: &Path) -> BootArtifacts {
     }
 }
 
+/// Looks for a kernel a package transaction just wrote directly into `root`
+/// (a fresh, empty-before-the-transaction upper layer, so anything here was
+/// written by this transaction, not inherited): the most recently modified
+/// `boot/vmlinuz-<version>` with a matching `boot/initramfs-<version>.img`.
+/// `None` means the transaction didn't touch `/boot` at all.
+pub fn find_new_kernel(root: &Path) -> Option<(PathBuf, PathBuf)> {
+    let boot_dir = root.join("boot");
+    let newest = fs::read_dir(&boot_dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().starts_with("vmlinuz-"))
+        .filter_map(|e| {
+            let modified = e.metadata().ok()?.modified().ok()?;
+            Some((e.path(), modified))
+        })
+        .max_by_key(|(_, modified)| *modified)?;
+    let kernel = newest.0;
+
+    let version = kernel.file_name()?.to_str()?.strip_prefix("vmlinuz-")?;
+    let initramfs = boot_dir.join(format!("initramfs-{version}.img"));
+    initramfs.exists().then_some((kernel, initramfs))
+}
+
 /// Registers `kernel`/`initramfs` as the new `name` generation (`"base"`,
 /// `"update"`, or `"head"`) and activates it atomically.
 pub fn register(
@@ -50,6 +73,59 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn find_new_kernel_pairs_matching_version() {
+        let root = scratch("find-new-kernel");
+        fs::create_dir_all(root.join("boot")).unwrap();
+        fs::write(root.join("boot/vmlinuz-6.1.0"), "kernel").unwrap();
+        fs::write(root.join("boot/initramfs-6.1.0.img"), "initramfs").unwrap();
+
+        let (kernel, initramfs) = find_new_kernel(&root).unwrap();
+
+        assert_eq!(kernel, root.join("boot/vmlinuz-6.1.0"));
+        assert_eq!(initramfs, root.join("boot/initramfs-6.1.0.img"));
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn find_new_kernel_ignores_vmlinuz_without_matching_initramfs() {
+        let root = scratch("find-new-kernel-orphan");
+        fs::create_dir_all(root.join("boot")).unwrap();
+        fs::write(root.join("boot/vmlinuz-6.1.0"), "kernel").unwrap();
+
+        assert!(find_new_kernel(&root).is_none());
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn find_new_kernel_picks_most_recently_modified() {
+        let root = scratch("find-new-kernel-newest");
+        fs::create_dir_all(root.join("boot")).unwrap();
+        fs::write(root.join("boot/vmlinuz-old"), "old").unwrap();
+        fs::write(root.join("boot/initramfs-old.img"), "old").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        fs::write(root.join("boot/vmlinuz-new"), "new").unwrap();
+        fs::write(root.join("boot/initramfs-new.img"), "new").unwrap();
+
+        let (kernel, _) = find_new_kernel(&root).unwrap();
+
+        assert_eq!(kernel, root.join("boot/vmlinuz-new"));
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn find_new_kernel_none_when_boot_untouched() {
+        let root = scratch("find-new-kernel-untouched");
+        fs::create_dir_all(&root).unwrap();
+
+        assert!(find_new_kernel(&root).is_none());
+
+        fs::remove_dir_all(&root).unwrap();
     }
 
     #[test]
