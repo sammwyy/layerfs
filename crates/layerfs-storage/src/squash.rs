@@ -252,4 +252,25 @@ mod tests {
         );
         fs::remove_dir_all(&root).unwrap();
     }
+
+    #[test]
+    fn upper_type_change_dir_to_file_wins_outright() {
+        let root = scratch("type-change-reverse");
+        let a = root.join("a");
+        let b = root.join("b");
+        let dest = root.join("dest");
+        fs::create_dir_all(a.join("thing")).unwrap();
+        fs::write(a.join("thing/inside.txt"), "was a dir").unwrap();
+        fs::create_dir_all(&b).unwrap();
+        fs::write(b.join("thing"), "now a file").unwrap();
+
+        squash(&a, &b, &dest).unwrap();
+
+        assert!(dest.join("thing").is_file());
+        assert_eq!(
+            fs::read_to_string(dest.join("thing")).unwrap(),
+            "now a file"
+        );
+        fs::remove_dir_all(&root).unwrap();
+    }
 }
