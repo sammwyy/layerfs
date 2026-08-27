@@ -4,6 +4,8 @@ use std::io;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
+use rustix::fs::{XattrFlags, getxattr, lgetxattr, listxattr, llistxattr, lsetxattr, setxattr};
+
 use crate::opaque::{is_opaque, mark_opaque};
 use crate::whiteout::{is_whiteout, write_whiteout};
 
@@ -20,6 +22,7 @@ fn copy_tree_inner(
 ) -> io::Result<()> {
     let metadata = fs::symlink_metadata(src)?;
 
+    let is_symlink = metadata.file_type().is_symlink();
     if metadata.is_dir() {
         fs::create_dir(dest)?;
         if is_opaque(src)? {
@@ -29,7 +32,7 @@ fn copy_tree_inner(
             let entry = entry?;
             copy_tree_inner(&entry.path(), &dest.join(entry.file_name()), hardlinks)?;
         }
-    } else if metadata.file_type().is_symlink() {
+    } else if is_symlink {
         let target = fs::read_link(src)?;
         std::os::unix::fs::symlink(target, dest)?;
     } else if is_whiteout(&metadata) {
@@ -49,6 +52,33 @@ fn copy_tree_inner(
         )));
     }
 
+    copy_xattrs(src, dest, is_symlink)
+}
+
+fn copy_xattrs(src: &Path, dest: &Path, is_symlink: bool) -> io::Result<()> {
+    let mut names = vec![0; 65_536];
+    let names_len = if is_symlink {
+        llistxattr(src, &mut names)?
+    } else {
+        listxattr(src, &mut names)?
+    };
+    for name in names[..names_len]
+        .split(|byte| *byte == 0)
+        .filter(|name| !name.is_empty())
+    {
+        let name = std::str::from_utf8(name).map_err(io::Error::other)?;
+        let mut value = vec![0; 65_536];
+        let value_len = if is_symlink {
+            lgetxattr(src, name, &mut value)?
+        } else {
+            getxattr(src, name, &mut value)?
+        };
+        if is_symlink {
+            lsetxattr(dest, name, &value[..value_len], XattrFlags::empty())?;
+        } else {
+            setxattr(dest, name, &value[..value_len], XattrFlags::empty())?;
+        }
+    }
     Ok(())
 }
 
@@ -118,6 +148,53 @@ mod tests {
             fs::metadata(dest.join("first")).unwrap().ino(),
             fs::metadata(dest.join("second")).unwrap().ino()
         );
+        fs::remove_dir_all(&src).unwrap();
+        fs::remove_dir_all(&dest).unwrap();
+    }
+
+    #[test]
+    fn preserves_user_xattrs() {
+        use rustix::fs::{XattrFlags, getxattr, setxattr};
+
+        let src = scratch("xattr-src");
+        let dest = scratch("xattr-dest");
+        fs::create_dir_all(&src).unwrap();
+        let source = src.join("file");
+        fs::write(&source, "xattr").unwrap();
+        setxattr(&source, "user.layerfs-test", b"value", XattrFlags::empty()).unwrap();
+
+        copy_tree(&src, &dest).unwrap();
+
+        let mut value = vec![0; 32];
+        let len = getxattr(dest.join("file"), "user.layerfs-test", &mut value).unwrap();
+        assert_eq!(&value[..len], b"value");
+        fs::remove_dir_all(&src).unwrap();
+        fs::remove_dir_all(&dest).unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires CAP_SETFCAP and setcap"]
+    fn preserves_file_capabilities() {
+        let src = scratch("capability-src");
+        let dest = scratch("capability-dest");
+        fs::create_dir_all(&src).unwrap();
+        let source = src.join("file");
+        fs::write(&source, "capability").unwrap();
+        assert!(
+            std::process::Command::new("setcap")
+                .args(["cap_net_bind_service=ep", source.to_str().unwrap()])
+                .status()
+                .unwrap()
+                .success()
+        );
+
+        copy_tree(&src, &dest).unwrap();
+
+        let output = std::process::Command::new("getcap")
+            .arg(dest.join("file"))
+            .output()
+            .unwrap();
+        assert!(String::from_utf8_lossy(&output.stdout).contains("cap_net_bind_service=ep"));
         fs::remove_dir_all(&src).unwrap();
         fs::remove_dir_all(&dest).unwrap();
     }
