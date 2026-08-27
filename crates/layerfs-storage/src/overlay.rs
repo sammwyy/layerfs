@@ -47,14 +47,8 @@ pub fn assemble(stack: &LayerStack, work_dir: &Path, target: &Path) -> io::Resul
     .map_err(io::Error::from)
 }
 
-/// Assembles `override_dir` over `new_lowers` (highest priority first —
-/// caller includes BASE as the last entry) fresh, then swaps it onto
-/// `target` via `mount --move`. Built from the store's layers directly
-/// rather than from whatever's currently mounted at `target`, so repeated
-/// calls stay flat instead of nesting an OverlayFS mount on top of the
-/// previous call's OverlayFS mount — which both leaks mounts and eventually
-/// hits the kernel's stacking-depth limit. Caller must scope `target` to a
-/// subtree with no nested mounts, or `mount --move` orphans them.
+/// Assembles fresh from the store's layers and swaps onto `target`, so
+/// repeated calls stay flat instead of nesting overlays.
 pub fn hot_apply(
     target: &Path,
     new_lowers: &[&Path],
@@ -80,9 +74,7 @@ pub fn hot_apply(
 
     assemble(&stack, work_dir, staging_dir)?;
 
-    // A previous hot-apply's mount, if any, would otherwise stay behind as
-    // a shadowed mount every time `mount --move` covers it, growing without
-    // bound over repeated calls in the same boot session.
+    // Otherwise a previous hot-apply's mount stays behind, shadowed and leaked.
     let _ = unmount(target, UnmountFlags::DETACH);
     mount_move(staging_dir, target).map_err(io::Error::from)
 }

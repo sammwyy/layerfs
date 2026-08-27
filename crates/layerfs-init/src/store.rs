@@ -9,10 +9,8 @@ use crate::device_scan;
 
 const STORE_MOUNT: &str = "/run/layerfs-store";
 const DISK_BY_DIR: &str = "/dev/disk";
-/// How long to keep retrying device resolution before giving up. `rdinit=`
-/// means no udev has run to populate devices, only kernel-managed devtmpfs
-/// (see `device_scan`) — usually near-instant, but real hardware enumerates
-/// on its own schedule, so a bounded wait beats a single racy attempt.
+/// Nothing else waits for the device to appear under `rdinit=`, so retry
+/// resolution ourselves instead of racing a single attempt.
 const DEVICE_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 const DEVICE_WAIT_POLL: Duration = Duration::from_millis(200);
 
@@ -31,12 +29,8 @@ pub fn locate(explicit: Option<&str>, subvol: Option<&str>) -> Result<PathBuf, S
     Err("no mounted LayerFS store found; pass layerfs.store=<path>".to_string())
 }
 
-/// Resolves `layerfs.store=UUID=<uuid>` / `LABEL=<label>` / `PARTUUID=<uuid>`
-/// device specs to a real block device path, retrying for up to
-/// `DEVICE_WAIT_TIMEOUT` since nothing else waits for the device to appear
-/// (see `DEVICE_WAIT_TIMEOUT`'s doc comment). A spec that isn't one of
-/// these forms (an already-mounted path, or a literal device path like
-/// `/dev/vda`) resolves immediately, unchanged.
+/// Resolves `UUID=`/`LABEL=`/`PARTUUID=` device specs to a real path,
+/// retrying until `DEVICE_WAIT_TIMEOUT`.
 fn resolve_device_spec(spec: &str) -> Result<PathBuf, String> {
     resolve_device_spec_with_timeout(spec, DEVICE_WAIT_TIMEOUT)
 }
@@ -56,12 +50,8 @@ fn resolve_device_spec_with_timeout(spec: &str, timeout: Duration) -> Result<Pat
     }
 }
 
-/// Single-shot resolution attempt: prefers the udev symlinks under
-/// `<disk_by_dir>/by-*` when present (works for any filesystem type, and
-/// for `PARTUUID=`, which needs partition-table parsing this doesn't do),
-/// falling back to a direct Btrfs superblock scan for `UUID=`/`LABEL=`
-/// (`device_scan`) — the only path that actually works under `rdinit=`,
-/// where no udev has run to create those symlinks at all.
+/// Tries the udev symlinks first, then falls back to `device_scan` for
+/// `UUID=`/`LABEL=` (the only path that works with no udev running).
 fn resolve_device_spec_under(disk_by_dir: &Path, spec: &str) -> Option<PathBuf> {
     let (by_dir, id) = if let Some(uuid) = spec.strip_prefix("UUID=") {
         ("by-uuid", uuid)

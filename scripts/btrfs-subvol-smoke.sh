@@ -1,10 +1,6 @@
 #!/usr/bin/env bash
-# Creates a real loop-mounted Btrfs image with a non-default 'layerfs'
-# subvolume (the layout a migrated system uses per section 33, keeping
-# LayerFS alongside other subvolumes rather than owning the whole
-# filesystem's default one) and confirms layerfs.subvol= actually selects
-# it: the same device without --subvol has no base at its default subvolume
-# and correctly fails, while --subvol layerfs finds it.
+# Confirms layerfs.subvol= selects a non-default Btrfs subvolume: the same
+# device without --subvol has no base there and correctly fails.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."

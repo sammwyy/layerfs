@@ -8,11 +8,8 @@ pub struct BootOptions {
     pub head: bool,
     pub debug: bool,
     pub store: Option<String>,
-    /// Btrfs subvolume the store lives in, when `store` names a device
-    /// rather than an already-mounted path (`layerfs.subvol=<name>`). A
-    /// migrated system keeps LayerFS alongside its other subvolumes
-    /// (section 33) rather than owning the whole filesystem's default
-    /// subvolume.
+    /// Btrfs subvolume the store lives in (`layerfs.subvol=<name>`), when
+    /// it isn't the device's default subvolume.
     pub subvol: Option<String>,
     /// Adapter names to activate for this boot (`layerfs.integrations=dnf,apt`).
     pub integrations: Vec<String>,

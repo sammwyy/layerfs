@@ -31,9 +31,7 @@ enum BootTier {
 }
 
 struct Entry {
-    /// Stable identifier (`menuentry --id`), matching the systemd-boot
-    /// integration's entry filenames 1:1 so `layerctl checkpoint <name>`
-    /// can address either bootloader's default entry the same way.
+    /// Stable `menuentry --id`, matching systemd-boot's entry names 1:1.
     id: &'static str,
     title: &'static str,
     checkpoint: Checkpoint,

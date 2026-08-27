@@ -197,10 +197,8 @@ fn transaction_cmd(store_root: &Path, program: &str, args: &[String]) -> Result<
     Ok(())
 }
 
-/// If this transaction wrote a new kernel/initramfs into `/boot`, registers
-/// it as the new `head` boot generation — the transactional-boot-artifacts
-/// counterpart to the root `UPDATE_HEAD` this same transaction just
-/// committed. A no-op for any transaction that didn't touch `/boot`.
+/// Registers a new `head` boot generation if this transaction wrote a
+/// kernel/initramfs into `/boot`; a no-op otherwise.
 fn register_new_kernel(store_root: &Path) -> Result<(), String> {
     let Some(update_head) = store::discover_layers(store_root)?.update_head else {
         return Ok(());
@@ -258,11 +256,8 @@ fn boot_register_cmd(
     Ok(())
 }
 
-/// Sets the default next-boot entry to `name` (one of the four canonical
-/// checkpoints) without touching the currently mounted root — see section
-/// 25. Only systemd-boot is supported so far: it's just an ESP file write,
-/// with no external tool to shell out to. GRUB's equivalent
-/// (`grubenv`/`grub2-set-default`) isn't implemented yet.
+/// Sets the default next-boot entry to `name` without touching the
+/// currently mounted root.
 fn checkpoint_cmd(
     name: &str,
     bootloader: Bootloader,
@@ -305,8 +300,7 @@ fn checkpoint_cmd(
 }
 
 /// Rewrites (or creates) `<esp>/loader/loader.conf`'s `default` line,
-/// leaving every other line untouched, via the same write-temp-then-rename
-/// pattern used for metadata commits elsewhere in this codebase.
+/// leaving every other line untouched.
 fn set_systemd_boot_default(esp: &Path, entry_id: &str) -> Result<(), String> {
     let loader_dir = esp.join("loader");
     std::fs::create_dir_all(&loader_dir).map_err(|e| e.to_string())?;
@@ -332,10 +326,8 @@ fn set_systemd_boot_default(esp: &Path, entry_id: &str) -> Result<(), String> {
     std::fs::rename(temporary, loader_conf).map_err(|e| e.to_string())
 }
 
-/// Whether `grub_cfg` contains a `menuentry --id '<entry_id>'`. The
-/// generated entries live inside one rendered `grub.cfg`, not as separate
-/// files the way systemd-boot's BLS entries do, so this is the only way to
-/// check one exists before pointing `grubenv` at it.
+/// Whether `grub_cfg` contains a `menuentry --id '<entry_id>'` — GRUB's
+/// entries live in one rendered file, unlike systemd-boot's separate ones.
 fn grub_entry_exists(grub_cfg: &Path, entry_id: &str) -> Result<bool, String> {
     match std::fs::read_to_string(grub_cfg) {
         Ok(contents) => Ok(contents.contains(&format!("--id '{entry_id}'"))),
@@ -347,11 +339,8 @@ fn grub_entry_exists(grub_cfg: &Path, entry_id: &str) -> Result<bool, String> {
 const GRUB_ENVBLK_SIZE: usize = 1024;
 const GRUB_ENVBLK_SIGNATURE: &str = "# GRUB Environment Block\n";
 
-/// Sets `saved_entry=<entry_id>` in `grubenv`, preserving any other
-/// variables already stored there — GRUB reads `saved_entry` as the
-/// default boot entry when the system's GRUB config sets
-/// `GRUB_DEFAULT=saved` (a `/etc/default/grub` setting outside LayerFS's
-/// control, so this only takes effect if that's already set up).
+/// Sets `saved_entry=<entry_id>` in `grubenv`, preserving other variables.
+/// Only takes effect if `GRUB_DEFAULT=saved` is already set elsewhere.
 fn set_grub_default(grubenv: &Path, entry_id: &str) -> Result<(), String> {
     let mut vars = read_grubenv(grubenv)?;
     match vars.iter_mut().find(|(k, _)| k == "saved_entry") {
@@ -361,10 +350,8 @@ fn set_grub_default(grubenv: &Path, entry_id: &str) -> Result<(), String> {
     write_grubenv(grubenv, &vars)
 }
 
-/// Parses the fixed-size `grub2-editenv` block format: a fixed signature
-/// line, `key=value\n` entries, then `#`-padding out to
-/// `GRUB_ENVBLK_SIZE` bytes total. A missing file reads as no variables —
-/// `grub2-mkconfig` creates a fresh one the same way.
+/// Parses the fixed-size `grub2-editenv` block format. A missing file
+/// reads as no variables.
 fn read_grubenv(path: &Path) -> Result<Vec<(String, String)>, String> {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
@@ -415,11 +402,7 @@ const KNOWN_INTEGRATIONS: &[(&str, &[&str])] = &[
 ];
 
 /// Installs each adapter binary as `layerfs-<name>`, preserves the real
-/// binary as `<real_name>.layerfs-real` (adapters fall back to that name
-/// when unwrapped by an env var), and symlinks the real name to the
-/// adapter. Errs on an unrecognized name rather than booting with it
-/// silently inactive, and on a missing adapter binary rather than leaving
-/// a symlink that points nowhere.
+/// binary as `<real_name>.layerfs-real`, and symlinks the real name to it.
 fn activate_integrations(
     base: &Path,
     integrations: &[String],

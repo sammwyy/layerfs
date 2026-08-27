@@ -1,14 +1,6 @@
 #!/usr/bin/env bash
-# Proves layerfs.store=UUID=... actually works under the real boot
-# architecture: layerfs-init is invoked via rdinit=, which replaces the
-# initramfs's own /init at the kernel level (a genuine kernel parameter,
-# not a dracut convention) — so dracut's udev never runs and
-# /dev/disk/by-uuid never gets created. UUID resolution has to work from
-# layerfs-init's own direct Btrfs superblock scan (device_scan.rs), not
-# the udev symlinks. This boots a real kernel against a Btrfs image with a
-# fixed UUID and layerfs.store=UUID=<that uuid> — no /dev/disk symlinks
-# exist in this environment at all, so a pass here can only mean the scan
-# fallback found it.
+# Proves layerfs.store=UUID=... resolves with no udev running (rdinit=
+# skips it entirely), not just against an already-populated /dev/disk.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."

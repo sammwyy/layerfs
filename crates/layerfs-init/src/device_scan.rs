@@ -1,12 +1,5 @@
-//! Direct Btrfs superblock scanning, for resolving `UUID=`/`LABEL=` device
-//! specs without udev. `layerfs.store=UUID=...` previously only resolved
-//! through the `/dev/disk/by-uuid` symlinks udev creates — but `rdinit=`
-//! (how `layerfs-init` is actually invoked, see `integrations/dracut`)
-//! replaces the initramfs's own `/init` entirely at the kernel level, so
-//! dracut's udev never starts and those symlinks never exist. This reads
-//! each block device's Btrfs superblock directly instead, matching what
-//! `blkid`/`btrfs filesystem show` report, verified against a real
-//! `mkfs.btrfs -L <label>` image's on-disk bytes.
+//! Resolves `UUID=`/`LABEL=` device specs by reading each block device's
+//! Btrfs superblock directly, since `rdinit=` skips dracut's udev entirely.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};

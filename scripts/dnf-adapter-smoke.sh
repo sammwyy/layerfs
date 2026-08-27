@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
-# Runs a real `dnf install` through the *installed* layerfs-dnf adapter
-# inside a privileged Fedora container: a minimal base is bootstrapped with
-# dnf's own --installroot (so this doesn't try to copy /proc, /sys, ... like
-# a live root would), `layerctl install --integrations dnf` activates the
-# adapter the same way a real retrofit install would, and then plain `dnf`
-# (now a symlink to layerfs-dnf, with the real binary preserved alongside
-# it) drives an actual transaction.
+# Runs a real `dnf install` through the installed layerfs-dnf adapter,
+# activated the same way a real retrofit install would.
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."

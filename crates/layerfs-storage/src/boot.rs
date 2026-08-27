@@ -25,11 +25,8 @@ pub fn discover(boot_store: &Path) -> BootArtifacts {
     }
 }
 
-/// Looks for a kernel a package transaction just wrote directly into `root`
-/// (a fresh, empty-before-the-transaction upper layer, so anything here was
-/// written by this transaction, not inherited): the most recently modified
-/// `boot/vmlinuz-<version>` with a matching `boot/initramfs-<version>.img`.
-/// `None` means the transaction didn't touch `/boot` at all.
+/// Finds the most recently modified `boot/vmlinuz-<version>` with a
+/// matching `initramfs-<version>.img`, or `None` if there's none.
 pub fn find_new_kernel(root: &Path) -> Option<(PathBuf, PathBuf)> {
     let boot_dir = root.join("boot");
     let newest = fs::read_dir(&boot_dir)

@@ -14,14 +14,8 @@ pub enum PathClass {
 /// bind-mount plan built during root assembly.
 pub const DATA_MOUNTS: &[&str] = &["home", "root", "srv"];
 
-/// Root-relative names of the virtual filesystem mount points a system
-/// transaction binds a real package manager's scriptlets onto. `BASE` must
-/// always carry these as plain empty directories (real distros do, via
-/// packages like `filesystem`): binding onto a path that already resolves
-/// through a lower layer is a pure mount operation with no copy-up, while
-/// binding onto a path that has to be `mkdir`'d first copies an otherwise
-/// empty directory into `HEAD.next`'s upper layer — which then reads as a
-/// change outside `usr`/`opt` and permanently blocks hot-apply.
+/// Virtual filesystem mount points a transaction binds scriptlets onto.
+/// `BASE` must carry these as empty dirs, or binding forces a copy-up.
 pub const VIRTUAL_MOUNTS: &[&str] = &["proc", "sys", "dev", "run"];
 
 pub fn classify(path: &str) -> PathClass {
