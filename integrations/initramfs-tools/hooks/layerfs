@@ -1,0 +1,26 @@
+#!/bin/sh
+set -eu
+
+PREREQ=''
+
+prereqs() {
+    echo "$PREREQ"
+}
+
+case "${1:-}" in
+    prereqs)
+        prereqs
+        exit 0
+        ;;
+esac
+
+. /usr/share/initramfs-tools/hook-functions
+
+init_bin="${LAYERFS_INIT:-/usr/libexec/layerfs/layerfs-init}"
+if [ ! -x "$init_bin" ]; then
+    echo "layerfs-init not found: $init_bin" >&2
+    exit 1
+fi
+
+copy_exec "$init_bin" /sbin/layerfs-init
+manual_add_modules overlay btrfs

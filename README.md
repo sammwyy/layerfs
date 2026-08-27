@@ -139,6 +139,14 @@ registered — not just that the generated paths look plausible.
 ./scripts/qemu-boot-artifacts-smoke.sh
 ```
 
+For Debian and Ubuntu packaging, `scripts/initramfs-tools-smoke.sh` uses a
+throwaway Debian container to generate an initramfs with the LayerFS hook and
+checks that the binary plus OverlayFS and Btrfs modules are present.
+
+```bash
+./scripts/initramfs-tools-smoke.sh
+```
+
 `layerctl transaction -- <program> [args...]` drives the real transaction
 engine (staging, a private mount namespace, chrooted execution, validation,
 atomic commit) for development, in place of a package-manager adapter. Like
