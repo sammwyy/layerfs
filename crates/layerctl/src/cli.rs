@@ -34,6 +34,7 @@ pub enum Command {
     Install {
         source: PathBuf,
         integrations: Vec<String>,
+        grub_entries: Option<PathBuf>,
     },
     ApplyNow {
         live_root: PathBuf,
@@ -134,6 +135,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Invocation, CliError>
         "install" => {
             let mut source = None;
             let mut integrations = Vec::new();
+            let mut grub_entries = None;
             while let Some(arg) = args.next() {
                 match arg.as_str() {
                     "--source" => source = args.next(),
@@ -146,12 +148,20 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Invocation, CliError>
                             .map(String::from)
                             .collect()
                     }
+                    "--grub-entries" => {
+                        grub_entries = Some(
+                            args.next()
+                                .ok_or(CliError::MissingArgument("--grub-entries value"))?
+                                .into(),
+                        )
+                    }
                     other => return Err(CliError::UnknownCommand(other.to_string())),
                 }
             }
             Command::Install {
                 source: source.ok_or(CliError::MissingArgument("--source"))?.into(),
                 integrations,
+                grub_entries,
             }
         }
         "apply-now" => {

@@ -1993,8 +1993,8 @@ Progress:
 - [x] generates the five hardcoded checkpoint entries (Normal, Safe Mode, System Only, Previous Update, Base Recovery) as GRUB configuration syntax (`integrations/grub`, binary `layerfs-grub-entries`), installable directly as an executable `/etc/grub.d/` script
 - [x] verified for real: `scripts/qemu-grub-smoke.sh` runs `grub2-script-check` on the generated `grub.cfg`, builds an actual bootable ISO with `grub2-mkrescue`, and boots it under QEMU/KVM — GRUB itself renders the menu, selects an entry, and chainloads the kernel + `layerfs-init` initramfs; checked for both the Normal and Base Recovery entries to prove GRUB is passing distinct `layerfs.checkpoint=` values through correctly, not just parsing without error
 - [x] `--integrations dnf,apt` bakes `layerfs.integrations=` into every entry's cmdline, parsed by `layerfs_core::BootOptions` the same way as checkpoint/head/store — re-chosen per boot, no separate config file
-- [ ] not installed into an actual `/etc/grub.d/` (Milestone 9, retrofit installation)
-- [ ] `--linux`/`--initrd` are passed through verbatim rather than discovered from tracked boot artifacts (Milestone 8)
+- [x] installed into an actual `/etc/grub.d/`: `layerctl install --grub-entries <path-to-built-binary>` copies it in as `etc/grub.d/41_layerfs`, executable, so `grub2-mkconfig` picks it up on the installed system — errs if the source tree has no `etc/grub.d` (not a GRUB system) rather than silently doing nothing. Verified for real: a fixture with an existing `etc/grub.d/10_linux` gets `41_layerfs` installed alongside it, executable, and actually running it against real registered boot artifacts (`layerctl boot-register`) produces valid GRUB entries; a source tree without `etc/grub.d` is correctly rejected
+- [x] kernel/initramfs paths were already discovered from tracked boot artifacts (`layerfs_storage::boot::discover`, `integrations/grub/src/main.rs`), not passed as raw `--linux`/`--initrd` flags — this note was stale by the time it was written; verified for real against real registered boot artifacts
 
 Generate checkpoint entries.
 

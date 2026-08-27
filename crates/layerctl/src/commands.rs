@@ -30,7 +30,8 @@ pub fn run(invocation: Invocation) -> Result<(), String> {
         Command::Install {
             source,
             integrations,
-        } => install_cmd(&store_root, &source, &integrations),
+            grub_entries,
+        } => install_cmd(&store_root, &source, &integrations, grub_entries.as_deref()),
         Command::ApplyNow { live_root } => apply_now_cmd(&store_root, &live_root),
         Command::Doctor => todo("doctor"),
     }
@@ -258,9 +259,34 @@ fn activate_integrations(base: &Path, integrations: &[String]) -> Result<Vec<Str
     Ok(activated)
 }
 
+/// Copies a built `layerfs-grub-entries` binary into `etc/grub.d/41_layerfs`,
+/// executable, so `grub2-mkconfig` picks it up on the installed system.
+fn install_grub_entries(base: &Path, bin: &Path) -> Result<(), String> {
+    let grub_d = base.join("etc/grub.d");
+    if !grub_d.is_dir() {
+        return Err(format!("{} not found: not a GRUB system", grub_d.display()));
+    }
+
+    let dest = grub_d.join("41_layerfs");
+    std::fs::copy(bin, &dest).map_err(|e| e.to_string())?;
+
+    let mut perms = std::fs::metadata(&dest)
+        .map_err(|e| e.to_string())?
+        .permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o755);
+    std::fs::set_permissions(&dest, perms).map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
 /// Converts a static (not live) source directory into `base`/`override`/
 /// `data` under `store_root`. Not the full reboot-into-migration flow yet.
-fn install_cmd(store_root: &Path, source: &Path, integrations: &[String]) -> Result<(), String> {
+fn install_cmd(
+    store_root: &Path,
+    source: &Path,
+    integrations: &[String],
+    grub_entries: Option<&Path>,
+) -> Result<(), String> {
     if !source.is_dir() {
         return Err(format!("{} is not a directory", source.display()));
     }
@@ -289,6 +315,11 @@ fn install_cmd(store_root: &Path, source: &Path, integrations: &[String]) -> Res
 
     for link in activate_integrations(&base, integrations)? {
         println!("activated {link}");
+    }
+
+    if let Some(bin) = grub_entries {
+        install_grub_entries(&base, bin)?;
+        println!("installed etc/grub.d/41_layerfs");
     }
 
     let report = layerfs_storage::validate::verify_root(&base);
