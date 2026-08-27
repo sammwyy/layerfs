@@ -4,7 +4,6 @@
 
 mod error;
 mod lock;
-pub mod manifest;
 mod state;
 mod transaction;
 

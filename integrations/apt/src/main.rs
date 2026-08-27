@@ -3,6 +3,7 @@
 //! the shared passthrough/transaction runner this only classifies for.
 
 mod classify;
+mod manifest;
 
 use std::process::ExitCode;
 
@@ -14,5 +15,9 @@ const ADAPTER: Adapter = Adapter {
 };
 
 fn main() -> ExitCode {
-    ADAPTER.run(classify::is_mutating)
+    match std::env::args().nth(1).as_deref() {
+        Some("--layerfs-manifest-apply") => manifest::apply_outer(),
+        Some("--layerfs-manifest-apply-inner") => manifest::apply_inner(),
+        _ => ADAPTER.run(classify::is_mutating, manifest::export),
+    }
 }

@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use layerfs_storage::StorageBackend;
 use layerfs_transaction::{Transaction, TransactionLock};
 
 use crate::cli::{Bootloader, Command, Invocation};
@@ -240,8 +239,8 @@ fn rollback_cmd(store_root: &Path, target: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Discards UPDATE/UPDATE_HEAD and replays every committed transaction in
-/// `manifest.log` against BASE from scratch.
+/// Discards UPDATE and UPDATE_HEAD back to a bare BASE; `manifest/` (outside
+/// these layers) is untouched, so an adapter can reinstall from it after.
 fn rebuild_cmd(store_root: &Path, target: &str) -> Result<(), String> {
     if target != "updates" {
         return Err(format!(
@@ -249,70 +248,23 @@ fn rebuild_cmd(store_root: &Path, target: &str) -> Result<(), String> {
         ));
     }
 
-    let entries = layerfs_transaction::manifest::read(store_root).map_err(|e| e.to_string())?;
-    let backend = layerfs_storage::detect_backend(store_root);
+    let _lock = TransactionLock::acquire(&store_root.join("transaction.lock"))
+        .map_err(|e| e.to_string())?;
 
-    {
-        let _lock = TransactionLock::acquire(&store_root.join("transaction.lock"))
-            .map_err(|e| e.to_string())?;
-        discard_updates(store_root, backend.as_ref())?;
-    }
-
-    for (i, entry) in entries.iter().enumerate() {
-        replay_entry(store_root, backend.as_ref(), entry).map_err(|e| {
-            format!(
-                "rebuild: replay {}/{} ({} {:?}) failed: {e}",
-                i + 1,
-                entries.len(),
-                entry.program,
-                entry.args
-            )
-        })?;
-    }
-
-    println!(
-        "rebuilt updates from base, replayed {} transactions",
-        entries.len()
-    );
-    Ok(())
-}
-
-fn discard_updates(store_root: &Path, backend: &dyn StorageBackend) -> Result<(), String> {
     let discovered = store::discover_layers(store_root)?;
+    let backend = layerfs_storage::detect_backend(store_root);
     if let Some(head) = discovered.update_head {
         let resolved = std::fs::canonicalize(&head).map_err(|e| e.to_string())?;
         std::fs::remove_file(store_root.join("update-head")).map_err(|e| e.to_string())?;
-        let _ = backend.delete_layer(&resolved);
+        backend.delete_layer(&resolved).map_err(|e| e.to_string())?;
     }
     if let Some(update) = discovered.update {
         let resolved = std::fs::canonicalize(&update).map_err(|e| e.to_string())?;
         std::fs::remove_file(store_root.join("update")).map_err(|e| e.to_string())?;
-        let _ = backend.delete_layer(&resolved);
-    }
-    Ok(())
-}
-
-fn replay_entry(
-    store_root: &Path,
-    backend: &dyn StorageBackend,
-    entry: &layerfs_transaction::TransactionRecord,
-) -> Result<(), String> {
-    let mut txn = Transaction::begin(store_root, backend, transaction_id(), entry.adapter.clone())
-        .map_err(|e| e.to_string())?;
-    txn.skip_manifest();
-
-    let target = store_root.join("transaction-root");
-    txn.stage(&target).map_err(|e| e.to_string())?;
-
-    let status = txn
-        .execute(&entry.program, &entry.args)
-        .map_err(|e| e.to_string())?;
-    if !status.success() {
-        return Err(format!("{} exited with {status}", entry.program));
+        backend.delete_layer(&resolved).map_err(|e| e.to_string())?;
     }
 
-    txn.validate().map_err(|e| e.to_string())?;
-    txn.commit().map_err(|e| e.to_string())?;
+    println!("rebuilt: update and update-head discarded, now booting base only");
     Ok(())
 }
 

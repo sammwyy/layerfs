@@ -9,6 +9,8 @@ description = "APT adapter: routes mutating APT operations through a LayerFS sys
 
 [dependencies]
 layerfs-adapter.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [[bin]]
 name = "layerfs-apt"

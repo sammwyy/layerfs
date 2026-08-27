@@ -46,6 +46,8 @@ name = "layerfs-apt"
 version = "0.1.0"
 dependencies = [
  "layerfs-adapter",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -62,6 +64,8 @@ name = "layerfs-dnf"
 version = "0.1.0"
 dependencies = [
  "layerfs-adapter",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -93,6 +97,8 @@ name = "layerfs-pacman"
 version = "0.1.0"
 dependencies = [
  "layerfs-adapter",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -120,7 +126,6 @@ dependencies = [
  "layerfs-storage",
  "rustix",
  "serde",
- "serde_json",
  "thiserror",
 ]
 
