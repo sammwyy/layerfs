@@ -100,10 +100,16 @@ fn main() -> Result<(), String> {
             "title {}\nlinux {}\ninitrd {}\noptions {}\n",
             entry.title, paths.kernel, paths.initramfs, options
         );
-        std::fs::write(entries_dir.join(format!("{}.conf", entry.name)), contents)
-            .map_err(|e| e.to_string())?;
+        write_entry(&entries_dir, entry.name, contents)?;
     }
     Ok(())
+}
+
+fn write_entry(entries_dir: &Path, name: &str, contents: String) -> Result<(), String> {
+    let target = entries_dir.join(format!("{name}.conf"));
+    let temporary = entries_dir.join(format!(".{name}.conf.new"));
+    std::fs::write(&temporary, contents).map_err(|e| e.to_string())?;
+    std::fs::rename(temporary, target).map_err(|e| e.to_string())
 }
 
 fn resolve(artifacts: &BootArtifacts, tier: Tier) -> Option<Paths> {
@@ -120,4 +126,23 @@ fn resolve(artifacts: &BootArtifacts, tier: Tier) -> Option<Paths> {
         kernel: path.join(KERNEL_FILENAME).display().to_string(),
         initramfs: path.join(INITRAMFS_FILENAME).display().to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn writes_a_complete_bl_entry() {
+        let dir = std::env::temp_dir().join(format!("layerfs-bls-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        write_entry(&dir, "layerfs-normal", "title LayerFS\n".to_string()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(dir.join("layerfs-normal.conf")).unwrap(),
+            "title LayerFS\n"
+        );
+        assert!(!dir.join(".layerfs-normal.conf.new").exists());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
