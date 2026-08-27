@@ -27,7 +27,10 @@ pub fn run(invocation: Invocation) -> Result<(), String> {
         Command::Rollback { target } => todo(&format!("rollback {target}")),
         Command::Rebuild { target } => todo(&format!("rebuild {target}")),
         Command::Checkpoint { name } => todo(&format!("checkpoint {name}")),
-        Command::Install { source } => install_cmd(&store_root, &source),
+        Command::Install {
+            source,
+            integrations,
+        } => install_cmd(&store_root, &source, &integrations),
         Command::ApplyNow { live_root } => apply_now_cmd(&store_root, &live_root),
         Command::Doctor => todo("doctor"),
     }
@@ -192,9 +195,43 @@ fn boot_register_cmd(
     Ok(())
 }
 
+/// Real binary names each named adapter stands in for.
+const KNOWN_INTEGRATIONS: &[(&str, &[&str])] = &[
+    ("dnf", &["dnf"]),
+    ("apt", &["apt-get", "apt"]),
+    ("pacman", &["pacman"]),
+];
+
+/// Symlinks each present real binary to its adapter (`dnf` -> `layerfs-dnf`).
+/// Errs on an unrecognized name rather than booting with it silently inactive.
+fn activate_integrations(base: &Path, integrations: &[String]) -> Result<Vec<String>, String> {
+    let mut activated = Vec::new();
+
+    for name in integrations {
+        let candidates = KNOWN_INTEGRATIONS
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, c)| *c)
+            .ok_or_else(|| format!("unknown integration: {name}"))?;
+
+        for real_name in candidates {
+            let target = base.join("usr/bin").join(real_name);
+            if !target.exists() {
+                continue;
+            }
+            std::fs::remove_file(&target).map_err(|e| e.to_string())?;
+            std::os::unix::fs::symlink(format!("layerfs-{name}"), &target)
+                .map_err(|e| e.to_string())?;
+            activated.push(format!("{real_name} -> layerfs-{name}"));
+        }
+    }
+
+    Ok(activated)
+}
+
 /// Converts a static (not live) source directory into `base`/`override`/
 /// `data` under `store_root`. Not the full reboot-into-migration flow yet.
-fn install_cmd(store_root: &Path, source: &Path) -> Result<(), String> {
+fn install_cmd(store_root: &Path, source: &Path, integrations: &[String]) -> Result<(), String> {
     if !source.is_dir() {
         return Err(format!("{} is not a directory", source.display()));
     }
@@ -220,6 +257,10 @@ fn install_cmd(store_root: &Path, source: &Path) -> Result<(), String> {
     }
 
     std::fs::create_dir_all(store_root.join("override")).map_err(|e| e.to_string())?;
+
+    for link in activate_integrations(&base, integrations)? {
+        println!("activated {link}");
+    }
 
     let report = layerfs_storage::validate::verify_root(&base);
     for check in &report.checks {

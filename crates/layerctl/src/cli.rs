@@ -33,6 +33,7 @@ pub enum Command {
     },
     Install {
         source: PathBuf,
+        integrations: Vec<String>,
     },
     ApplyNow {
         live_root: PathBuf,
@@ -56,11 +57,8 @@ pub enum CliError {
     MissingArgument(&'static str),
 }
 
-/// Parses `layerctl [--store <path>] <command> [args...]` using a minimal
-/// argument parser, per the dependency philosophy of avoiding heavy CLI
-/// frameworks. `--store` is only recognized before the command name —
-/// everything after it (notably `transaction -- <program> [args...]`) is
-/// passed through verbatim rather than re-scanned for flags.
+/// Parses `layerctl [--store <path>] <command> [args...]`; `--store` is only
+/// recognized before the command name, everything after is passed through.
 pub fn parse(args: impl Iterator<Item = String>) -> Result<Invocation, CliError> {
     let mut args = args.peekable();
     let mut store = None;
@@ -135,14 +133,25 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Invocation, CliError>
         },
         "install" => {
             let mut source = None;
+            let mut integrations = Vec::new();
             while let Some(arg) = args.next() {
                 match arg.as_str() {
                     "--source" => source = args.next(),
+                    "--integrations" => {
+                        integrations = args
+                            .next()
+                            .ok_or(CliError::MissingArgument("--integrations value"))?
+                            .split(',')
+                            .filter(|s| !s.is_empty())
+                            .map(String::from)
+                            .collect()
+                    }
                     other => return Err(CliError::UnknownCommand(other.to_string())),
                 }
             }
             Command::Install {
                 source: source.ok_or(CliError::MissingArgument("--source"))?.into(),
+                integrations,
             }
         }
         "apply-now" => {

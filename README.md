@@ -142,10 +142,13 @@ unshare --map-root-user --mount -- \
 `layerctl install --source <dir>` converts a static (not live) source tree
 into `base`/`override`/`data`, extracting `home`/`root`/`srv` out into
 `data`. Not the full live-migration flow (that needs a reboot into a
-dedicated dracut initramfs, not implemented yet):
+dedicated dracut initramfs, not implemented yet). `--integrations dnf,apt`
+symlinks each present real package-manager binary (e.g. `usr/bin/dnf`) to
+its adapter (`layerfs-dnf`) inside the new base, matching what GRUB bakes
+into `layerfs.integrations=` on the boot entry (see `integrations/grub`):
 
 ```bash
-./target/debug/layerctl --store /path/to/a/store install --source /path/to/a/rootfs
+./target/debug/layerctl --store /path/to/a/store install --source /path/to/a/rootfs --integrations dnf
 ```
 
 A committed transaction only becomes the *booted* root on the next reboot
