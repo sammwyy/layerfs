@@ -1895,7 +1895,7 @@ one valid LayerFS system must remain bootable
 Progress:
 
 - [x] Cargo workspace (`crates/`, `xtask/`, `tests/integration/`)
-- [~] Fedora QEMU image — no installed Fedora disk image yet, but `scripts/qemu-smoke.sh` boots the real host's kernel (Fedora 42, 6.19.x) under QEMU/KVM against a throwaway initramfs; full installroot-based image is still open
+- [x] Fedora QEMU image — `scripts/qemu-fedora-installroot-smoke.sh` builds a real `dnf --installroot` Fedora 42 system (systemd, systemd-udev) as LayerFS's `base`, boots it under QEMU/KVM through `layerfs-init`'s actual root assembly and `switch_root`, and reaches a real login prompt: `basic.target`, `multi-user.target`, and `graphical.target` all reached, with `systemd-udevd`, `dbus-broker`, and `systemd-logind` running as real services, not a throwaway marker binary
 - [x] automated kernel/initramfs boot — `scripts/qemu-smoke.sh` boots a real kernel with `layerfs-init`'s mount logic as `rdinit=/init`, loads `overlay.ko` by hand (no dracut yet), and powers off via `reboot(2)`, all unattended
 - [x] basic integration-test harness — cross-crate `cargo test` crate, an unprivileged-namespace OverlayFS example, and now a real QEMU boot harness
 
