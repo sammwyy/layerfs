@@ -1,5 +1,6 @@
 mod cli;
 mod commands;
+mod doctor;
 mod store;
 mod walk;
 

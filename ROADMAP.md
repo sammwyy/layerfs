@@ -1955,8 +1955,8 @@ Progress:
 - [x] fail-safe rejection of invalid checkpoint values (no silent NORMAL fallback)
 - [x] directory-backend layer discovery (`layerfs-storage::discover`) and checkpoint→stack resolution (`layerfs-init::mount::resolve_stack`), including `head=off` dropping UPDATE_HEAD
 - [x] DATA bind-mounted alongside the overlay for `safe`/`normal` (`layerfs-init::mount::mount_data`, `layerfs_core::DATA_MOUNTS`); verified end to end (existing content visible, writes land in the backing store, correct nested unmount order) via `overlay_smoke`
-- [ ] wired into `main.rs`'s actual boot path end to end (currently reachable only via explicit `layerfs.store=`, not real storage/BASE discovery on a booted machine)
-- [ ] `switch_root` (Milestone 8/boot-artifact territory — deliberately out of scope here)
+- [~] `main.rs` now discovers an already-mounted store by scanning `/proc/self/mountinfo` for a mount containing `base`, while `layerfs.store=<path>` remains an explicit override. Verified through the real QEMU `switch_root` boot without that parameter. Mounting the backing device and a full BASE discovery flow remain dracut/migration work.
+- [x] `switch_root`: `layerfs-init` now assembles at `/sysroot`, carries `/dev`, `/proc`, `/sys`, and `/run` into the new root, then moves the assembled mount to `/`, chroots, and execs `/sbin/init`. Verified by `scripts/qemu-switch-root-smoke.sh`: the actual initramfs binary hands off to `/sbin/init` from the composed OverlayFS root, which reads an OVERRIDE-shadowed marker and powers off QEMU.
 
 Add:
 
@@ -2021,7 +2021,7 @@ Progress:
 - [x] `verify` — MVP structural checks against BASE (`/usr`, `/etc`, `/bin` or `/usr/bin`) (`crates/layerctl/src/verify.rs`)
 - [x] `install` — see Milestone 9
 - [x] `rollback update` — discards the active UPDATE_HEAD, holding `transaction.lock` so it can't race a concurrent transaction; refuses a target other than `"update"` and refuses when there's no active UPDATE_HEAD to discard. Verified for real (`unshare --map-root-user --mount --user`): two chained transactions correctly squash the first's content into UPDATE (per `stage`'s squash-on-commit logic) leaving UPDATE_HEAD holding only the second's; `rollback update` discards UPDATE_HEAD leaving UPDATE (and its content) intact; a second rollback correctly refuses with nothing left to roll back
-- [ ] `rebuild` / `checkpoint` / `doctor` — still stubs; `rebuild` (reconstructing UPDATE/UPDATE_HEAD, section 2.4) and `checkpoint` (user-named checkpoints) are each their own distinct, still-unscoped feature, not just "the same as rollback"
+- [~] `rebuild` / `checkpoint` remain stubs; `doctor` now reports read-only store health: layer discovery, backend validation, generation consistency, structural BASE checks, and registered boot-artifact completeness. User-named checkpoints remain unscoped because they conflict with the architecture's fixed checkpoint model; `rebuild` needs a package-manifest/replay design before it can safely reconstruct UPDATE/UPDATE_HEAD.
 
 Verified against a real store layout (including an actual unprivileged OverlayFS whiteout device) built in a scratch directory: `status`, `inspect override`, `diff override`, `verify`, and `reset` (plus its correct failure on a second reset) all behaved as expected, and `layerctl status` against a nonexistent default store fails safely without creating anything.
 

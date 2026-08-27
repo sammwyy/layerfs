@@ -31,3 +31,11 @@ path = "examples/qemu_smoke_init.rs"
 [[example]]
 name = "artifact_marker_init"
 path = "examples/artifact_marker_init.rs"
+
+[[example]]
+name = "qemu_switch_root_preinit"
+path = "examples/qemu_switch_root_preinit.rs"
+
+[[example]]
+name = "switched_root_init"
+path = "examples/switched_root_init.rs"

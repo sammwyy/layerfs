@@ -3,3 +3,5 @@
 
 pub mod log;
 pub mod mount;
+pub mod store;
+pub mod switch_root;

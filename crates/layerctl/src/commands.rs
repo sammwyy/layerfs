@@ -7,7 +7,7 @@ use crate::cli::{Command, Invocation};
 use crate::store;
 use crate::walk::{self, EntryKind};
 
-/// Executes a parsed invocation; `rebuild`/`checkpoint`/`doctor` are stubs.
+/// Executes a parsed invocation; `rebuild` and `checkpoint` are stubs.
 pub fn run(invocation: Invocation) -> Result<(), String> {
     let Invocation { store, command } = invocation;
     let store_root = crate::store::resolve(&store);
@@ -33,7 +33,7 @@ pub fn run(invocation: Invocation) -> Result<(), String> {
             grub_entries,
         } => install_cmd(&store_root, &source, &integrations, grub_entries.as_deref()),
         Command::ApplyNow { live_root } => apply_now_cmd(&store_root, &live_root),
-        Command::Doctor => todo("doctor"),
+        Command::Doctor => crate::doctor::run(&store_root),
     }
 }
 
