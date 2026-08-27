@@ -139,6 +139,15 @@ registered — not just that the generated paths look plausible.
 ./scripts/qemu-boot-artifacts-smoke.sh
 ```
 
+`scripts/qemu-systemd-boot-smoke.sh` creates a temporary UEFI ESP and Btrfs
+store, then boots them through OVMF and systemd-boot under QEMU/KVM. It checks
+the BLS entry reaches the LayerFS root handoff and needs Docker, OVMF, and FAT
+filesystem tools in addition to the QEMU requirements above.
+
+```bash
+./scripts/qemu-systemd-boot-smoke.sh
+```
+
 For Debian and Ubuntu packaging, `scripts/initramfs-tools-smoke.sh` uses a
 throwaway Debian container to generate an initramfs with the LayerFS hook and
 checks that the binary plus OverlayFS and Btrfs modules are present.
