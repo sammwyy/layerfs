@@ -9,6 +9,7 @@ mod directory;
 mod discover;
 mod error;
 pub mod generations;
+pub mod live_update;
 mod opaque;
 pub mod overlay;
 pub mod risk;

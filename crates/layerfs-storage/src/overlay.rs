@@ -48,12 +48,15 @@ pub fn assemble(stack: &LayerStack, work_dir: &Path, target: &Path) -> io::Resul
 }
 
 /// Layers `new_lowers` (highest priority first) over a snapshot of
-/// `live_root`'s current contents, then atomically swaps that assembled
-/// view in as `live_root` itself via `mount --move`. Processes that
-/// already opened files from `live_root` keep the old versions (normal
-/// Unix replace-while-open semantics); new opens see `new_lowers`.
+/// `target`'s current contents, then atomically swaps that assembled view
+/// in as `target` itself via `mount --move`. Processes that already opened
+/// files from `target` keep the old versions (normal Unix
+/// replace-while-open semantics); new opens see `new_lowers`. Callers
+/// should scope `target` to a subtree with no mounts nested under it
+/// (`live_update::apply` does) — moving a mount over one that does orphans
+/// its submounts.
 pub fn hot_apply(
-    live_root: &Path,
+    target: &Path,
     new_lowers: &[&Path],
     override_dir: &Path,
     work_dir: &Path,
@@ -61,7 +64,7 @@ pub fn hot_apply(
     staging_dir: &Path,
 ) -> io::Result<()> {
     fs::create_dir_all(snapshot_dir)?;
-    mount_bind(live_root, snapshot_dir)?;
+    mount_bind(target, snapshot_dir)?;
 
     let mut stack = LayerStack::new();
     stack.push(Layer::new(
@@ -86,7 +89,7 @@ pub fn hot_apply(
     ));
 
     assemble(&stack, work_dir, staging_dir)?;
-    mount_move(staging_dir, live_root).map_err(io::Error::from)
+    mount_move(staging_dir, target).map_err(io::Error::from)
 }
 
 /// Bind-mounts each present DATA subdirectory onto `target`; missing ones

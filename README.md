@@ -151,15 +151,18 @@ dedicated dracut initramfs, not implemented yet):
 A committed transaction only becomes the *booted* root on the next reboot
 — the running system's mounted `/` can't be reconfigured under it. But a
 committed update can be applied to the running system without a reboot:
-`layerctl apply-now [--live-root <path>]` snapshots the current root,
+`layerctl apply-now [--live-root <path>]` snapshots the affected subtree,
 layers the store's UPDATE_HEAD/UPDATE on top, and atomically swaps it in
-via `mount --move`. Already-open files on already-running processes keep
-their old content (normal Unix replace-while-open behavior); new opens see
-the change immediately. `dnf`/`apt` adapters call this automatically after
-a commit, but only when the update didn't touch a shared library, `/boot`,
-or systemd itself — otherwise they report that a reboot is required rather
-than risk leaving running processes on a stale version of something they
-already loaded:
+via `mount --move`. This is scoped to `/usr` and `/opt` only — never `/`
+itself — since a whole-root swap could orphan mounts nested under paths
+like `/proc` or `/home` that a non-recursive snapshot bind mount wouldn't
+capture. Already-open files on already-running processes keep their old
+content (normal Unix replace-while-open behavior); new opens see the
+change immediately. `dnf`/`apt` adapters call this automatically after a
+commit, but only when the update stays within `usr`/`opt` and didn't touch
+a shared library, `/boot`, or systemd itself — otherwise they report that
+a reboot is required rather than risk leaving running processes on a stale
+version of something they already loaded, or orphaning a mount:
 
 ```bash
 unshare --map-root-user --mount -- \

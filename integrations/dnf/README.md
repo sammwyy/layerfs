@@ -16,10 +16,11 @@ LAYERFS_LAYERCTL_BIN path to layerctl, used to run the transaction (default: "la
 LAYERFS_LIVE_ROOT    root to hot-apply safe updates to (default: "/")
 ```
 
-After a successful commit, a safe update (no shared library/kernel/systemd
-changes) is applied to the running system immediately, no reboot — see
-`layerctl apply-now` in the top-level README. A risky one is committed but
-left for the next reboot, and says so.
+After a successful commit, a safe update (confined to `usr`/`opt`, no
+shared library/kernel/systemd changes) is applied to the running system
+immediately, no reboot — see `layerctl apply-now` in the top-level README.
+Anything else (touches `etc`, a shared library, `/boot`, systemd) is
+committed but left for the next reboot, and says so.
 
 `layerfs_dnf::classify::is_mutating` decides whether an invocation needs a
 transaction: an explicit allowlist of read-only verbs (`search`, `info`,

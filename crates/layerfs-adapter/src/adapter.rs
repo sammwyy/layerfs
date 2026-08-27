@@ -71,51 +71,30 @@ impl Adapter {
     }
 
     /// Applies the just-committed update to the running system if it's
-    /// judged safe (no shared libraries/kernel touched); otherwise reports
-    /// that a reboot is needed, never guessing wrong in the risky direction.
+    /// judged safe; otherwise reports that a reboot is needed, never
+    /// guessing wrong in the risky direction.
     fn try_hot_apply(&self, store_root: &Path) {
-        let discovered = match layerfs_storage::discover(store_root) {
-            Ok(d) => d,
-            Err(_) => return self.report_reboot_required(),
-        };
-        let Some(head) = &discovered.update_head else {
-            return self.report_reboot_required();
-        };
+        use layerfs_storage::live_update::Outcome;
 
-        match layerfs_storage::risk::layer_is_risky(head) {
-            Ok(true) | Err(_) => self.report_reboot_required(),
-            Ok(false) => {
-                let live_root = PathBuf::from(
-                    env::var("LAYERFS_LIVE_ROOT").unwrap_or_else(|_| DEFAULT_LIVE_ROOT.to_string()),
-                );
-                let override_dir = discovered
-                    .r#override
-                    .unwrap_or_else(|| store_root.join("override"));
-                let _ = std::fs::create_dir_all(&override_dir);
+        let live_root = PathBuf::from(
+            env::var("LAYERFS_LIVE_ROOT").unwrap_or_else(|_| DEFAULT_LIVE_ROOT.to_string()),
+        );
 
-                let mut lowers = vec![head.as_path()];
-                if let Some(update) = &discovered.update {
-                    lowers.push(update.as_path());
-                }
-
-                let hot = store_root.join("hot");
-                let result = layerfs_storage::overlay::hot_apply(
-                    &live_root,
-                    &lowers,
-                    &override_dir,
-                    &hot.join("work"),
-                    &hot.join("snapshot"),
-                    &hot.join("staging"),
-                );
-
-                match result {
-                    Ok(()) => eprintln!("{}: update applied live, no reboot needed", self.name),
-                    Err(e) => eprintln!(
-                        "{}: update committed but live apply failed ({e}); reboot required to apply",
-                        self.name
-                    ),
-                }
+        match layerfs_storage::live_update::apply(store_root, &live_root) {
+            Ok(Outcome::Applied(scopes)) => {
+                eprintln!(
+                    "{}: update applied live ({}), no reboot needed",
+                    self.name,
+                    scopes.join(", ")
+                )
             }
+            Ok(Outcome::NothingToApply) | Ok(Outcome::RequiresReboot) => {
+                self.report_reboot_required()
+            }
+            Err(e) => eprintln!(
+                "{}: update committed but live apply failed ({e}); reboot required to apply",
+                self.name
+            ),
         }
     }
 

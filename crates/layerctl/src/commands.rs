@@ -247,45 +247,28 @@ fn install_cmd(store_root: &Path, source: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Layers the current UPDATE_HEAD/UPDATE over a snapshot of `live_root`'s
-/// present contents and swaps it in live via `mount --move`, without a
-/// reboot. Already-running processes keep their old open files; only new
-/// opens see the change.
+/// Applies the current UPDATE_HEAD/UPDATE to `live_root` live, scoped to
+/// whatever subtree is safe (see `layerfs_storage::live_update`).
 fn apply_now_cmd(store_root: &Path, live_root: &Path) -> Result<(), String> {
-    let discovered = store::discover_layers(store_root)?;
+    use layerfs_storage::live_update::Outcome;
 
-    let mut lowers = Vec::new();
-    if let Some(head) = &discovered.update_head {
-        lowers.push(head.as_path());
+    match layerfs_storage::live_update::apply(store_root, live_root).map_err(|e| e.to_string())? {
+        Outcome::NothingToApply => {
+            Err("nothing to apply: no update or update-head present".to_string())
+        }
+        Outcome::RequiresReboot => Err(
+            "cannot apply live: touches a path outside usr/opt or a shared library/kernel"
+                .to_string(),
+        ),
+        Outcome::Applied(scopes) => {
+            println!(
+                "applied live: {} ({})",
+                live_root.display(),
+                scopes.join(", ")
+            );
+            Ok(())
+        }
     }
-    if let Some(update) = &discovered.update {
-        lowers.push(update.as_path());
-    }
-    if lowers.is_empty() {
-        return Err("nothing to apply: no update or update-head present".to_string());
-    }
-
-    let override_dir = discovered
-        .r#override
-        .unwrap_or_else(|| store_root.join("override"));
-    std::fs::create_dir_all(&override_dir).map_err(|e| e.to_string())?;
-
-    let hot = store_root.join("hot");
-    layerfs_storage::overlay::hot_apply(
-        live_root,
-        &lowers,
-        &override_dir,
-        &hot.join("work"),
-        &hot.join("snapshot"),
-        &hot.join("staging"),
-    )
-    .map_err(|e| e.to_string())?;
-
-    println!(
-        "applied live: {} now reflects the current update",
-        live_root.display()
-    );
-    Ok(())
 }
 
 fn transaction_id() -> String {

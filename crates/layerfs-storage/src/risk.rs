@@ -39,6 +39,31 @@ fn walk(root: &Path, rel: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {
     Ok(())
 }
 
+/// Top-level directories a scoped hot-apply is allowed to touch — ones
+/// that don't normally have their own mounts nested under them, so
+/// replacing just that subtree can't orphan a submount the way replacing
+/// `/` itself could (e.g. `/proc`, `/home`, `/boot`).
+const HOT_APPLICABLE_SCOPES: &[&str] = &["usr", "opt"];
+
+/// The top-level names touched across `layers`, if every one of them is in
+/// `HOT_APPLICABLE_SCOPES`; `None` if any isn't (e.g. `/etc`), meaning a
+/// scoped hot-apply isn't safe and the whole update needs a reboot.
+pub fn hot_applicable_scopes(layers: &[&Path]) -> io::Result<Option<Vec<String>>> {
+    let mut scopes = Vec::new();
+    for layer in layers {
+        for entry in fs::read_dir(layer)? {
+            let name = entry?.file_name().to_string_lossy().into_owned();
+            if !HOT_APPLICABLE_SCOPES.contains(&name.as_str()) {
+                return Ok(None);
+            }
+            if !scopes.contains(&name) {
+                scopes.push(name);
+            }
+        }
+    }
+    Ok(Some(scopes))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,5 +103,42 @@ mod tests {
 
         assert!(layer_is_risky(&dir).unwrap());
         fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn usr_only_change_is_hot_applicable() {
+        let dir = scratch("scope-usr");
+        fs::create_dir_all(dir.join("usr/bin")).unwrap();
+
+        assert_eq!(
+            hot_applicable_scopes(&[&dir]).unwrap(),
+            Some(vec!["usr".to_string()])
+        );
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn etc_change_is_not_hot_applicable() {
+        let dir = scratch("scope-etc");
+        fs::create_dir_all(dir.join("etc")).unwrap();
+
+        assert_eq!(hot_applicable_scopes(&[&dir]).unwrap(), None);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn scopes_are_deduplicated_across_layers() {
+        let a = scratch("scope-dup-a");
+        let b = scratch("scope-dup-b");
+        fs::create_dir_all(a.join("usr")).unwrap();
+        fs::create_dir_all(b.join("usr")).unwrap();
+        fs::create_dir_all(b.join("opt")).unwrap();
+
+        let mut scopes = hot_applicable_scopes(&[&a, &b]).unwrap().unwrap();
+        scopes.sort();
+        assert_eq!(scopes, vec!["opt".to_string(), "usr".to_string()]);
+
+        fs::remove_dir_all(&a).unwrap();
+        fs::remove_dir_all(&b).unwrap();
     }
 }
