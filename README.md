@@ -228,4 +228,4 @@ not deliberate bypass by someone with root and raw block-device access.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](LICENSE).

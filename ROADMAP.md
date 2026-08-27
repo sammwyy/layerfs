@@ -5,7 +5,7 @@
 Implementation language: Rust
 Primary platform: Linux
 Initial reference target: Fedora + Btrfs + GRUB + dracut
-License: MIT
+License: Apache-2.0
 
 This document is both the design reference and the implementation roadmap.
 Sections 1-40 describe the target architecture; section 41 tracks progress
