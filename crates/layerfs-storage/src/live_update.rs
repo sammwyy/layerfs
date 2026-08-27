@@ -44,9 +44,12 @@ pub fn apply(store_root: &Path, live_root: &Path) -> io::Result<Outcome> {
 
     let mut applied = Vec::new();
     for scope in scopes {
+        // BASE last: lowest priority, and the only one guaranteed to exist,
+        // so a scope untouched by any update still resolves through it.
         let scope_lowers: Vec<_> = lowers
             .iter()
             .map(|l| l.join(&scope))
+            .chain(std::iter::once(discovered.base.join(&scope)))
             .filter(|p| p.is_dir())
             .collect();
         if scope_lowers.is_empty() {
@@ -62,7 +65,6 @@ pub fn apply(store_root: &Path, live_root: &Path) -> io::Result<Outcome> {
             &scope_lowers,
             &override_dir,
             &hot.join(&scope).join("work"),
-            &hot.join(&scope).join("snapshot"),
             &hot.join(&scope).join("staging"),
         )?;
         applied.push(scope);

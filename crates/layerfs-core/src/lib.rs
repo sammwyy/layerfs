@@ -13,5 +13,5 @@ pub use boot_options::BootOptions;
 pub use checkpoint::Checkpoint;
 pub use error::CoreError;
 pub use layer::{Layer, LayerKind, LayerStack};
-pub use path_class::{DATA_MOUNTS, PathClass, classify};
+pub use path_class::{DATA_MOUNTS, PathClass, VIRTUAL_MOUNTS, classify};
 pub use state::{State, UpdateState};

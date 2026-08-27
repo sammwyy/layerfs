@@ -369,6 +369,10 @@ fn install_cmd(
 
     std::fs::create_dir_all(store_root.join("override")).map_err(|e| e.to_string())?;
 
+    for name in layerfs_core::VIRTUAL_MOUNTS {
+        std::fs::create_dir_all(base.join(name)).map_err(|e| e.to_string())?;
+    }
+
     for link in activate_integrations(&base, integrations, adapter_bins)? {
         println!("activated {link}");
     }

@@ -7,7 +7,7 @@ use rustix::mount::{UnmountFlags, mount_bind_recursive, unmount};
 use rustix::process::chroot;
 use rustix::thread::{UnshareFlags, unshare_unsafe};
 
-use layerfs_core::{Layer, LayerKind, LayerStack};
+use layerfs_core::{Layer, LayerKind, LayerStack, VIRTUAL_MOUNTS};
 use layerfs_storage::{DiscoveredStore, StorageBackend};
 
 use crate::error::TransactionError;
@@ -216,11 +216,6 @@ impl Drop for Transaction<'_> {
         }
     }
 }
-
-/// `/proc`, `/sys`, `/dev`, `/run` bound into the transaction root so a real
-/// package manager's scriptlets (dracut, ldconfig, systemd-sysusers, ...)
-/// see the same virtual filesystems they would on a live system.
-const VIRTUAL_MOUNTS: &[&str] = &["proc", "sys", "dev", "run"];
 
 fn mount_virtual_filesystems(target: &Path) -> Result<(), TransactionError> {
     for name in VIRTUAL_MOUNTS {

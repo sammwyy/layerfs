@@ -3,7 +3,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use rustix::mount::{MountFlags, mount, mount_bind, mount_move};
+use rustix::mount::{MountFlags, UnmountFlags, mount, mount_bind, mount_move, unmount};
 
 use layerfs_core::{DATA_MOUNTS, Layer, LayerKind, LayerStack};
 
@@ -47,20 +47,21 @@ pub fn assemble(stack: &LayerStack, work_dir: &Path, target: &Path) -> io::Resul
     .map_err(io::Error::from)
 }
 
-/// Layers `new_lowers` over a snapshot of `target`, then swaps it in via
-/// `mount --move`. Caller must scope `target` to a subtree with no nested
-/// mounts, or `mount --move` orphans them.
+/// Assembles `override_dir` over `new_lowers` (highest priority first —
+/// caller includes BASE as the last entry) fresh, then swaps it onto
+/// `target` via `mount --move`. Built from the store's layers directly
+/// rather than from whatever's currently mounted at `target`, so repeated
+/// calls stay flat instead of nesting an OverlayFS mount on top of the
+/// previous call's OverlayFS mount — which both leaks mounts and eventually
+/// hits the kernel's stacking-depth limit. Caller must scope `target` to a
+/// subtree with no nested mounts, or `mount --move` orphans them.
 pub fn hot_apply(
     target: &Path,
     new_lowers: &[&Path],
     override_dir: &Path,
     work_dir: &Path,
-    snapshot_dir: &Path,
     staging_dir: &Path,
 ) -> io::Result<()> {
-    fs::create_dir_all(snapshot_dir)?;
-    mount_bind(target, snapshot_dir)?;
-
     let mut stack = LayerStack::new();
     stack.push(Layer::new(
         LayerKind::Override,
@@ -76,14 +77,13 @@ pub fn hot_apply(
             true,
         ));
     }
-    stack.push(Layer::new(
-        LayerKind::Base,
-        "live-snapshot",
-        snapshot_dir,
-        true,
-    ));
 
     assemble(&stack, work_dir, staging_dir)?;
+
+    // A previous hot-apply's mount, if any, would otherwise stay behind as
+    // a shadowed mount every time `mount --move` covers it, growing without
+    // bound over repeated calls in the same boot session.
+    let _ = unmount(target, UnmountFlags::DETACH);
     mount_move(staging_dir, target).map_err(io::Error::from)
 }
 
