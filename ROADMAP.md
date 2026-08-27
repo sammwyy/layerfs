@@ -2019,7 +2019,9 @@ Progress:
 - [x] `diff <layer>` — classifies each entry as added/modified/removed against the next layer down
 - [x] `reset <path>` — removes a path's override representation (file, whiteout, or directory), restoring the lower layer's version
 - [x] `verify` — MVP structural checks against BASE (`/usr`, `/etc`, `/bin` or `/usr/bin`) (`crates/layerctl/src/verify.rs`)
-- [ ] `rollback` / `rebuild` / `checkpoint` / `install` / `doctor` — depend on the transaction engine and package-manager adapters, still stubs
+- [x] `install` — see Milestone 9
+- [x] `rollback update` — discards the active UPDATE_HEAD, holding `transaction.lock` so it can't race a concurrent transaction; refuses a target other than `"update"` and refuses when there's no active UPDATE_HEAD to discard. Verified for real (`unshare --map-root-user --mount --user`): two chained transactions correctly squash the first's content into UPDATE (per `stage`'s squash-on-commit logic) leaving UPDATE_HEAD holding only the second's; `rollback update` discards UPDATE_HEAD leaving UPDATE (and its content) intact; a second rollback correctly refuses with nothing left to roll back
+- [ ] `rebuild` / `checkpoint` / `doctor` — still stubs; `rebuild` (reconstructing UPDATE/UPDATE_HEAD, section 2.4) and `checkpoint` (user-named checkpoints) are each their own distinct, still-unscoped feature, not just "the same as rollback"
 
 Verified against a real store layout (including an actual unprivileged OverlayFS whiteout device) built in a scratch directory: `status`, `inspect override`, `diff override`, `verify`, and `reset` (plus its correct failure on a second reset) all behaved as expected, and `layerctl status` against a nonexistent default store fails safely without creating anything.
 

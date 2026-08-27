@@ -1,13 +1,13 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use layerfs_transaction::Transaction;
+use layerfs_transaction::{Transaction, TransactionLock};
 
 use crate::cli::{Command, Invocation};
 use crate::store;
 use crate::walk::{self, EntryKind};
 
-/// Executes a parsed invocation; `rollback`/`rebuild`/`checkpoint` are stubs.
+/// Executes a parsed invocation; `rebuild`/`checkpoint`/`doctor` are stubs.
 pub fn run(invocation: Invocation) -> Result<(), String> {
     let Invocation { store, command } = invocation;
     let store_root = crate::store::resolve(&store);
@@ -24,7 +24,7 @@ pub fn run(invocation: Invocation) -> Result<(), String> {
             kernel,
             initramfs,
         } => boot_register_cmd(&store_root, &name, &kernel, &initramfs),
-        Command::Rollback { target } => todo(&format!("rollback {target}")),
+        Command::Rollback { target } => rollback_cmd(&store_root, &target),
         Command::Rebuild { target } => todo(&format!("rebuild {target}")),
         Command::Checkpoint { name } => todo(&format!("checkpoint {name}")),
         Command::Install {
@@ -179,6 +179,35 @@ fn transaction_cmd(store_root: &Path, program: &str, args: &[String]) -> Result<
     txn.commit().map_err(|e| e.to_string())?;
 
     println!("transaction committed");
+    Ok(())
+}
+
+/// Rolls back to `target` (only `"update"` is valid) by discarding the
+/// active UPDATE_HEAD — the one-step rollback the design allows.
+fn rollback_cmd(store_root: &Path, target: &str) -> Result<(), String> {
+    if target != "update" {
+        return Err(format!(
+            "unknown rollback target: {target} (only \"update\" is valid)"
+        ));
+    }
+
+    let _lock = TransactionLock::acquire(&store_root.join("transaction.lock"))
+        .map_err(|e| e.to_string())?;
+
+    let discovered = store::discover_layers(store_root)?;
+    let head = discovered
+        .update_head
+        .ok_or("nothing to roll back: no active update-head")?;
+    let resolved_head = std::fs::canonicalize(&head).map_err(|e| e.to_string())?;
+
+    std::fs::remove_file(store_root.join("update-head")).map_err(|e| e.to_string())?;
+
+    let backend = layerfs_storage::detect_backend(store_root);
+    backend
+        .delete_layer(&resolved_head)
+        .map_err(|e| e.to_string())?;
+
+    println!("rolled back: update-head discarded, now booting base+update only");
     Ok(())
 }
 

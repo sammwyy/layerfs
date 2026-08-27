@@ -139,6 +139,16 @@ unshare --map-root-user --mount -- \
     ./target/debug/layerctl --store /path/to/a/store transaction -- /bin/some-static-binary
 ```
 
+`layerctl rollback update` discards the active UPDATE_HEAD, the one-step
+rollback the design allows (see "One-update rollback" above) — the prior
+UPDATE_HEAD was already squashed into UPDATE by the transaction that
+superseded it, so UPDATE alone is enough to boot from. Refuses if there's
+no UPDATE_HEAD to discard:
+
+```bash
+./target/debug/layerctl --store /path/to/a/store rollback update
+```
+
 `layerctl install --source <dir>` converts a static (not live) source tree
 into `base`/`override`/`data`, extracting `home`/`root`/`srv` out into
 `data`. Not the full live-migration flow (that needs a reboot into a
