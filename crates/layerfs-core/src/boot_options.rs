@@ -8,6 +8,12 @@ pub struct BootOptions {
     pub head: bool,
     pub debug: bool,
     pub store: Option<String>,
+    /// Btrfs subvolume the store lives in, when `store` names a device
+    /// rather than an already-mounted path (`layerfs.subvol=<name>`). A
+    /// migrated system keeps LayerFS alongside its other subvolumes
+    /// (section 33) rather than owning the whole filesystem's default
+    /// subvolume.
+    pub subvol: Option<String>,
     /// Adapter names to activate for this boot (`layerfs.integrations=dnf,apt`).
     pub integrations: Vec<String>,
 }
@@ -19,6 +25,7 @@ impl Default for BootOptions {
             head: true,
             debug: false,
             store: None,
+            subvol: None,
             integrations: Vec::new(),
         }
     }
@@ -43,6 +50,7 @@ impl BootOptions {
                 "layerfs.head" => opts.head = parse_bool(key, value)?,
                 "layerfs.debug" => opts.debug = parse_bool(key, value)?,
                 "layerfs.store" => opts.store = Some(value.to_string()),
+                "layerfs.subvol" => opts.subvol = Some(value.to_string()),
                 "layerfs.integrations" => {
                     opts.integrations = value
                         .split(',')
@@ -101,5 +109,16 @@ mod tests {
     #[test]
     fn defaults_to_no_integrations() {
         assert!(BootOptions::parse("").unwrap().integrations.is_empty());
+    }
+
+    #[test]
+    fn parses_subvol() {
+        let opts = BootOptions::parse("layerfs.store=UUID=abcd layerfs.subvol=layerfs").unwrap();
+        assert_eq!(opts.subvol.as_deref(), Some("layerfs"));
+    }
+
+    #[test]
+    fn defaults_to_no_subvol() {
+        assert!(BootOptions::parse("").unwrap().subvol.is_none());
     }
 }

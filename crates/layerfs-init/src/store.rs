@@ -1,3 +1,4 @@
+use std::ffi::CString;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -6,9 +7,9 @@ use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
 const STORE_MOUNT: &str = "/run/layerfs-store";
 const DISK_BY_DIR: &str = "/dev/disk";
 
-pub fn locate(explicit: Option<&str>) -> Result<PathBuf, String> {
+pub fn locate(explicit: Option<&str>, subvol: Option<&str>) -> Result<PathBuf, String> {
     if let Some(store) = explicit {
-        return require_store(resolve_device_spec(store)?);
+        return require_store(resolve_device_spec(store)?, subvol);
     }
 
     let mountinfo = std::fs::read_to_string("/proc/self/mountinfo").map_err(|e| e.to_string())?;
@@ -45,21 +46,31 @@ fn resolve_device_spec_under(disk_by_dir: &Path, spec: &str) -> Result<PathBuf, 
     std::fs::canonicalize(&link).map_err(|e| format!("resolve {spec} ({}): {e}", link.display()))
 }
 
-fn require_store(path: PathBuf) -> Result<PathBuf, String> {
-    if path.join("base").is_dir() {
+fn require_store(path: PathBuf, subvol: Option<&str>) -> Result<PathBuf, String> {
+    if subvol.is_none() && path.join("base").is_dir() {
         return Ok(path);
     }
 
-    mount_btrfs_store(&path)
+    mount_btrfs_store(&path, subvol)
 }
 
-fn mount_btrfs_store(source: &Path) -> Result<PathBuf, String> {
+fn mount_btrfs_store(source: &Path, subvol: Option<&str>) -> Result<PathBuf, String> {
     let target = Path::new(STORE_MOUNT);
     std::fs::create_dir_all(target).map_err(|e| e.to_string())?;
-    let no_data = None;
-    mount(source, target, "btrfs", MountFlags::empty(), no_data)
-        .map_err(io::Error::from)
-        .map_err(|e| format!("mount {} at {}: {e}", source.display(), target.display()))?;
+
+    let data = subvol
+        .map(|name| CString::new(format!("subvol={name}")))
+        .transpose()
+        .map_err(|e| e.to_string())?;
+    mount(
+        source,
+        target,
+        "btrfs",
+        MountFlags::empty(),
+        data.as_deref(),
+    )
+    .map_err(io::Error::from)
+    .map_err(|e| format!("mount {} at {}: {e}", source.display(), target.display()))?;
 
     if target.join("base").is_dir() {
         return Ok(target.to_path_buf());
@@ -97,7 +108,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("base")).unwrap();
 
-        assert_eq!(locate(Some(root.to_str().unwrap())).unwrap(), root);
+        assert_eq!(locate(Some(root.to_str().unwrap()), None).unwrap(), root);
 
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -106,7 +117,16 @@ mod tests {
     #[ignore = "requires LAYERFS_BTRFS_STORE_DEVICE and CAP_SYS_ADMIN"]
     fn mounts_a_btrfs_device_store() {
         let source = std::env::var("LAYERFS_BTRFS_STORE_DEVICE").unwrap();
-        let store = locate(Some(&source)).unwrap();
+        let store = locate(Some(&source), None).unwrap();
+        assert!(store.join("base").is_dir());
+        unmount(Path::new(STORE_MOUNT), UnmountFlags::empty()).unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires LAYERFS_BTRFS_STORE_DEVICE, a 'layerfs' subvolume on it, and CAP_SYS_ADMIN"]
+    fn mounts_a_specific_btrfs_subvolume() {
+        let source = std::env::var("LAYERFS_BTRFS_STORE_DEVICE").unwrap();
+        let store = locate(Some(&source), Some("layerfs")).unwrap();
         assert!(store.join("base").is_dir());
         unmount(Path::new(STORE_MOUNT), UnmountFlags::empty()).unwrap();
     }
