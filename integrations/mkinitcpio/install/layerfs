@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+build() {
+    local init_bin=${LAYERFS_INIT:-/usr/libexec/layerfs/layerfs-init}
+    [[ -x $init_bin ]] || error "layerfs-init not found: $init_bin"
+
+    add_binary "$init_bin" /sbin/layerfs-init
+    add_module 'overlay?'
+    add_module 'btrfs?'
+}
+
+help() {
+    cat <<HELPEOF
+Embeds layerfs-init with OverlayFS and Btrfs support.
+HELPEOF
+}
