@@ -65,6 +65,7 @@ fn main() -> Result<(), String> {
     let mut store = None;
     let mut entries_dir = None;
     let mut rdinit = None;
+    let mut integrations = Vec::new();
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -72,12 +73,21 @@ fn main() -> Result<(), String> {
             "--store" => store = args.next(),
             "--entries-dir" => entries_dir = args.next(),
             "--rdinit" => rdinit = args.next(),
+            "--integrations" => {
+                integrations = args
+                    .next()
+                    .unwrap_or_default()
+                    .split(',')
+                    .filter(|name| !name.is_empty())
+                    .map(String::from)
+                    .collect();
+            }
             _ => return Err(format!("unknown argument: {arg}")),
         }
     }
     let (Some(boot_store), Some(store), Some(entries_dir)) = (boot_store, store, entries_dir)
     else {
-        return Err("usage: layerfs-systemd-boot --boot-store <path> --store <path> --entries-dir <path> [--rdinit <path>]".to_string());
+        return Err("usage: layerfs-systemd-boot --boot-store <path> --store <path> --entries-dir <path> [--integrations <a,b>] [--rdinit <path>]".to_string());
     };
     let entries_dir = PathBuf::from(entries_dir);
     std::fs::create_dir_all(&entries_dir).map_err(|e| e.to_string())?;
@@ -92,6 +102,10 @@ fn main() -> Result<(), String> {
         );
         if entry.head_off {
             options.push_str(" layerfs.head=off");
+        }
+        if !integrations.is_empty() {
+            options.push_str(" layerfs.integrations=");
+            options.push_str(&integrations.join(","));
         }
         if let Some(rdinit) = &rdinit {
             options.push_str(&format!(" rdinit={rdinit}"));
@@ -144,5 +158,11 @@ mod tests {
         );
         assert!(!dir.join(".layerfs-normal.conf.new").exists());
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn serializes_integrations_once() {
+        let integrations = ["dnf", "apt"];
+        assert_eq!(integrations.join(","), "dnf,apt");
     }
 }
