@@ -23,7 +23,12 @@ fn main() {
         &format!("head={} store={:?}", opts.head, opts.store),
     );
 
-    let store = match store::locate(opts.store.as_deref(), opts.subvol.as_deref()) {
+    let store = match store::locate(
+        opts.store.as_deref(),
+        opts.subvol.as_deref(),
+        opts.luks.as_deref(),
+        opts.luks_key.as_deref(),
+    ) {
         Ok(store) => store,
         Err(error) => log::fatal(&format!("storage discovery failed: {error}")),
     };

@@ -14,7 +14,17 @@ const DISK_BY_DIR: &str = "/dev/disk";
 const DEVICE_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 const DEVICE_WAIT_POLL: Duration = Duration::from_millis(200);
 
-pub fn locate(explicit: Option<&str>, subvol: Option<&str>) -> Result<PathBuf, String> {
+pub fn locate(
+    explicit: Option<&str>,
+    subvol: Option<&str>,
+    luks: Option<&str>,
+    luks_key: Option<&str>,
+) -> Result<PathBuf, String> {
+    if let Some(luks_spec) = luks {
+        let device = resolve_device_spec(luks_spec)?;
+        let mapper = crate::luks::unlock(&device, luks_key)?;
+        return require_store(mapper, subvol);
+    }
     if let Some(store) = explicit {
         return require_store(resolve_device_spec(store)?, subvol);
     }
@@ -137,7 +147,10 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("base")).unwrap();
 
-        assert_eq!(locate(Some(root.to_str().unwrap()), None).unwrap(), root);
+        assert_eq!(
+            locate(Some(root.to_str().unwrap()), None, None, None).unwrap(),
+            root
+        );
 
         std::fs::remove_dir_all(root).unwrap();
     }
@@ -146,7 +159,7 @@ mod tests {
     #[ignore = "requires LAYERFS_BTRFS_STORE_DEVICE and CAP_SYS_ADMIN"]
     fn mounts_a_btrfs_device_store() {
         let source = std::env::var("LAYERFS_BTRFS_STORE_DEVICE").unwrap();
-        let store = locate(Some(&source), None).unwrap();
+        let store = locate(Some(&source), None, None, None).unwrap();
         assert!(store.join("base").is_dir());
         unmount(Path::new(STORE_MOUNT), UnmountFlags::empty()).unwrap();
     }
@@ -155,9 +168,25 @@ mod tests {
     #[ignore = "requires LAYERFS_BTRFS_STORE_DEVICE, a 'layerfs' subvolume on it, and CAP_SYS_ADMIN"]
     fn mounts_a_specific_btrfs_subvolume() {
         let source = std::env::var("LAYERFS_BTRFS_STORE_DEVICE").unwrap();
-        let store = locate(Some(&source), Some("layerfs")).unwrap();
+        let store = locate(Some(&source), Some("layerfs"), None, None).unwrap();
         assert!(store.join("base").is_dir());
         unmount(Path::new(STORE_MOUNT), UnmountFlags::empty()).unwrap();
+    }
+
+    #[test]
+    #[ignore = "requires LAYERFS_LUKS_DEVICE, LAYERFS_LUKS_KEY, a Btrfs store inside it, and CAP_SYS_ADMIN"]
+    fn unlocks_and_mounts_a_luks_backed_store() {
+        let device = std::env::var("LAYERFS_LUKS_DEVICE").unwrap();
+        let key = std::env::var("LAYERFS_LUKS_KEY").unwrap();
+
+        let store = locate(None, None, Some(&device), Some(&key)).unwrap();
+
+        assert!(store.join("base").is_dir());
+        unmount(Path::new(STORE_MOUNT), UnmountFlags::empty()).unwrap();
+        std::process::Command::new("cryptsetup")
+            .args(["luksClose", "layerfs-crypt"])
+            .status()
+            .unwrap();
     }
 
     fn fake_disk_by_dir(name: &str) -> PathBuf {

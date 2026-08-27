@@ -3,6 +3,7 @@
 
 mod device_scan;
 pub mod log;
+mod luks;
 pub mod mount;
 pub mod store;
 pub mod switch_root;

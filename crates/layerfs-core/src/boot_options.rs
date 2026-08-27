@@ -11,6 +11,9 @@ pub struct BootOptions {
     /// Btrfs subvolume the store lives in (`layerfs.subvol=<name>`), when
     /// it isn't the device's default subvolume.
     pub subvol: Option<String>,
+    /// Encrypted device to unlock before `store` (`layerfs.luks=<spec>`).
+    pub luks: Option<String>,
+    pub luks_key: Option<String>,
     /// Adapter names to activate for this boot (`layerfs.integrations=dnf,apt`).
     pub integrations: Vec<String>,
 }
@@ -23,6 +26,8 @@ impl Default for BootOptions {
             debug: false,
             store: None,
             subvol: None,
+            luks: None,
+            luks_key: None,
             integrations: Vec::new(),
         }
     }
@@ -48,6 +53,8 @@ impl BootOptions {
                 "layerfs.debug" => opts.debug = parse_bool(key, value)?,
                 "layerfs.store" => opts.store = Some(value.to_string()),
                 "layerfs.subvol" => opts.subvol = Some(value.to_string()),
+                "layerfs.luks" => opts.luks = Some(value.to_string()),
+                "layerfs.luks_key" => opts.luks_key = Some(value.to_string()),
                 "layerfs.integrations" => {
                     opts.integrations = value
                         .split(',')
@@ -117,5 +124,19 @@ mod tests {
     #[test]
     fn defaults_to_no_subvol() {
         assert!(BootOptions::parse("").unwrap().subvol.is_none());
+    }
+
+    #[test]
+    fn parses_luks_and_luks_key() {
+        let opts = BootOptions::parse("layerfs.luks=UUID=abcd layerfs.luks_key=/key").unwrap();
+        assert_eq!(opts.luks.as_deref(), Some("UUID=abcd"));
+        assert_eq!(opts.luks_key.as_deref(), Some("/key"));
+    }
+
+    #[test]
+    fn defaults_to_no_luks() {
+        let opts = BootOptions::parse("").unwrap();
+        assert!(opts.luks.is_none());
+        assert!(opts.luks_key.is_none());
     }
 }
