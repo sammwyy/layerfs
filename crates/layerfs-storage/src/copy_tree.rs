@@ -1,13 +1,23 @@
+use std::collections::HashMap;
 use std::fs;
 use std::io;
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
 use crate::opaque::{is_opaque, mark_opaque};
 use crate::whiteout::{is_whiteout, write_whiteout};
 
 /// Recursively copies `src` into `dest` (must not exist): dirs (preserving
-/// opacity), files, symlinks, whiteouts — no other xattrs/ACLs/hardlinks.
+/// opacity), files, symlinks, and whiteouts.
 pub fn copy_tree(src: &Path, dest: &Path) -> io::Result<()> {
+    copy_tree_inner(src, dest, &mut HashMap::new())
+}
+
+fn copy_tree_inner(
+    src: &Path,
+    dest: &Path,
+    hardlinks: &mut HashMap<(u64, u64), std::path::PathBuf>,
+) -> io::Result<()> {
     let metadata = fs::symlink_metadata(src)?;
 
     if metadata.is_dir() {
@@ -17,7 +27,7 @@ pub fn copy_tree(src: &Path, dest: &Path) -> io::Result<()> {
         }
         for entry in fs::read_dir(src)? {
             let entry = entry?;
-            copy_tree(&entry.path(), &dest.join(entry.file_name()))?;
+            copy_tree_inner(&entry.path(), &dest.join(entry.file_name()), hardlinks)?;
         }
     } else if metadata.file_type().is_symlink() {
         let target = fs::read_link(src)?;
@@ -25,7 +35,13 @@ pub fn copy_tree(src: &Path, dest: &Path) -> io::Result<()> {
     } else if is_whiteout(&metadata) {
         write_whiteout(dest)?;
     } else if metadata.is_file() {
-        fs::copy(src, dest)?;
+        let key = (metadata.dev(), metadata.ino());
+        if let Some(first) = hardlinks.get(&key) {
+            fs::hard_link(first, dest)?;
+        } else {
+            fs::copy(src, dest)?;
+            hardlinks.insert(key, dest.to_path_buf());
+        }
     } else {
         return Err(io::Error::other(format!(
             "unsupported file type at {}: DirectoryBackend only handles files, dirs, symlinks, and whiteouts",
@@ -82,6 +98,26 @@ mod tests {
         let meta = fs::symlink_metadata(dest.join("deleted")).unwrap();
         assert!(is_whiteout(&meta));
 
+        fs::remove_dir_all(&src).unwrap();
+        fs::remove_dir_all(&dest).unwrap();
+    }
+
+    #[test]
+    fn preserves_hardlinks() {
+        use std::os::unix::fs::MetadataExt;
+
+        let src = scratch("hardlink-src");
+        let dest = scratch("hardlink-dest");
+        fs::create_dir_all(&src).unwrap();
+        fs::write(src.join("first"), "shared").unwrap();
+        fs::hard_link(src.join("first"), src.join("second")).unwrap();
+
+        copy_tree(&src, &dest).unwrap();
+
+        assert_eq!(
+            fs::metadata(dest.join("first")).unwrap().ino(),
+            fs::metadata(dest.join("second")).unwrap().ino()
+        );
         fs::remove_dir_all(&src).unwrap();
         fs::remove_dir_all(&dest).unwrap();
     }
