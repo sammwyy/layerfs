@@ -13,6 +13,7 @@ install() {
     local init_bin=${LAYERFS_INIT:-/usr/libexec/layerfs/layerfs-init}
     [[ -x $init_bin ]] || dfatal "layerfs-init not found: $init_bin"
     inst_simple "$init_bin" /sbin/layerfs-init
+    inst_hook cmdline 30 "$moddir/parse-layerfs.sh"
 }
 
 installkernel() {
