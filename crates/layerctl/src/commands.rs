@@ -8,10 +8,7 @@ use crate::cli::{Command, Invocation};
 use crate::store;
 use crate::walk::{self, EntryKind};
 
-/// Executes a parsed invocation. `status`, `inspect`, `diff`, `reset`,
-/// `verify`, `transaction`, `boot-register`, `install`, and `apply-now`
-/// are implemented against a `DirectoryBackend`-style store; `rollback`/
-/// `rebuild`/`checkpoint`, which need a real running system, are stubs.
+/// Executes a parsed invocation; `rollback`/`rebuild`/`checkpoint` are stubs.
 pub fn run(invocation: Invocation) -> Result<(), String> {
     let Invocation { store, command } = invocation;
     let store_root = crate::store::resolve(&store);
@@ -158,11 +155,8 @@ fn verify_cmd(store_root: &std::path::Path) -> Result<(), String> {
     }
 }
 
-/// Development-only system transaction: stages UPDATE.next/HEAD.next,
-/// chroots `program` into the assembled `HEAD.next > UPDATE.next > BASE`
-/// view, validates, and commits on success. A real package-manager
-/// adapter (dnf/apt/pacman) will drive this same engine; this command
-/// exists to exercise it before those adapters are written (section 25).
+/// Development-only system transaction: stages, chroots `program` into the
+/// assembled view, validates, and commits on success.
 fn transaction_cmd(store_root: &Path, program: &str, args: &[String]) -> Result<(), String> {
     let backend = DirectoryBackend::new(store_root);
     let mut txn = Transaction::begin(store_root, &backend, transaction_id(), "layerctl")
@@ -186,10 +180,7 @@ fn transaction_cmd(store_root: &Path, program: &str, args: &[String]) -> Result<
     Ok(())
 }
 
-/// Registers a kernel/initramfs pair as the `name` boot generation
-/// (`base`/`update`/`head`), atomically activating it. A real kernel
-/// package upgrade inside a system transaction should call the same
-/// primitive to keep GRUB pointed at a kernel that matches the rootfs.
+/// Registers a kernel/initramfs pair as the `name` boot generation, atomically activating it.
 fn boot_register_cmd(
     store_root: &Path,
     name: &str,

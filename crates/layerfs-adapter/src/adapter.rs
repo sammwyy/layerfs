@@ -39,11 +39,8 @@ impl Adapter {
         self.fail(&format!("failed to exec {bin}: {err}"))
     }
 
-    /// Runs the transaction in a separate `layerctl` process rather than
-    /// in-process: `Transaction::stage` unshares into a private mount
-    /// namespace, and that namespace dies with whatever process called it
-    /// — running it here would leave this process unable to hot-apply to
-    /// the real one afterward.
+    /// Runs in a separate `layerctl` process: its mount-namespace unshare
+    /// dies with it, leaving this process able to hot-apply afterward.
     fn transacted(&self, store_root: &Path, bin: &str, args: &[String]) -> ExitCode {
         let layerctl =
             env::var("LAYERFS_LAYERCTL_BIN").unwrap_or_else(|_| DEFAULT_LAYERCTL.to_string());
@@ -70,9 +67,7 @@ impl Adapter {
         ExitCode::SUCCESS
     }
 
-    /// Applies the just-committed update to the running system if it's
-    /// judged safe; otherwise reports that a reboot is needed, never
-    /// guessing wrong in the risky direction.
+    /// Applies the just-committed update live if safe, else reports a reboot is needed.
     fn try_hot_apply(&self, store_root: &Path) {
         use layerfs_storage::live_update::Outcome;
 

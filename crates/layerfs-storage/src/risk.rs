@@ -39,15 +39,10 @@ fn walk(root: &Path, rel: &Path, out: &mut Vec<PathBuf>) -> io::Result<()> {
     Ok(())
 }
 
-/// Top-level directories a scoped hot-apply is allowed to touch — ones
-/// that don't normally have their own mounts nested under them, so
-/// replacing just that subtree can't orphan a submount the way replacing
-/// `/` itself could (e.g. `/proc`, `/home`, `/boot`).
+/// Top-level dirs with no nested mounts, so scoped hot-apply can't orphan one.
 const HOT_APPLICABLE_SCOPES: &[&str] = &["usr", "opt"];
 
-/// The top-level names touched across `layers`, if every one of them is in
-/// `HOT_APPLICABLE_SCOPES`; `None` if any isn't (e.g. `/etc`), meaning a
-/// scoped hot-apply isn't safe and the whole update needs a reboot.
+/// Top-level names touched across `layers`, or `None` if any falls outside `HOT_APPLICABLE_SCOPES`.
 pub fn hot_applicable_scopes(layers: &[&Path]) -> io::Result<Option<Vec<String>>> {
     let mut scopes = Vec::new();
     for layer in layers {

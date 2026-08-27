@@ -11,12 +11,8 @@ pub enum Outcome {
     Applied(Vec<String>),
 }
 
-/// Applies the store's current UPDATE_HEAD/UPDATE to `live_root` without a
-/// reboot, scoped to whichever top-level directories (`usr`, `opt`) it's
-/// safe to swap in place — never the whole root, since that can orphan
-/// mounts nested under paths like `/proc` or `/home`. Refuses (rather than
-/// guessing) if the update touches a shared library, the kernel, or
-/// anything outside that safe scope.
+/// Hot-applies UPDATE_HEAD/UPDATE to `live_root`, scoped to safe top-level
+/// dirs (`usr`, `opt`); refuses if anything falls outside that or is risky.
 pub fn apply(store_root: &Path, live_root: &Path) -> io::Result<Outcome> {
     let discovered = discover(store_root).map_err(io::Error::other)?;
 

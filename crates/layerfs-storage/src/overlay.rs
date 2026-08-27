@@ -47,14 +47,9 @@ pub fn assemble(stack: &LayerStack, work_dir: &Path, target: &Path) -> io::Resul
     .map_err(io::Error::from)
 }
 
-/// Layers `new_lowers` (highest priority first) over a snapshot of
-/// `target`'s current contents, then atomically swaps that assembled view
-/// in as `target` itself via `mount --move`. Processes that already opened
-/// files from `target` keep the old versions (normal Unix
-/// replace-while-open semantics); new opens see `new_lowers`. Callers
-/// should scope `target` to a subtree with no mounts nested under it
-/// (`live_update::apply` does) — moving a mount over one that does orphans
-/// its submounts.
+/// Layers `new_lowers` over a snapshot of `target`, then swaps it in via
+/// `mount --move`. Caller must scope `target` to a subtree with no nested
+/// mounts, or `mount --move` orphans them.
 pub fn hot_apply(
     target: &Path,
     new_lowers: &[&Path],
