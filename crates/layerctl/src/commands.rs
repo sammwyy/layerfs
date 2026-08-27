@@ -26,7 +26,7 @@ pub fn run(invocation: Invocation) -> Result<(), String> {
         } => boot_register_cmd(&store_root, &name, &kernel, &initramfs),
         Command::Rollback { target } => rollback_cmd(&store_root, &target),
         Command::Rebuild { target } => todo(&format!("rebuild {target}")),
-        Command::Checkpoint { name } => todo(&format!("checkpoint {name}")),
+        Command::Checkpoint { name, esp } => checkpoint_cmd(&name, &esp),
         Command::Install {
             source,
             integrations,
@@ -250,6 +250,56 @@ fn boot_register_cmd(
         .map_err(|e| e.to_string())?;
     println!("registered {name} -> {}", dest.display());
     Ok(())
+}
+
+/// Sets the default next-boot entry to `name` (one of the four canonical
+/// checkpoints) without touching the currently mounted root — see section
+/// 25. Only systemd-boot is supported so far: it's just an ESP file write,
+/// with no external tool to shell out to. GRUB's equivalent
+/// (`grubenv`/`grub2-set-default`) isn't implemented yet.
+fn checkpoint_cmd(name: &str, esp: &Path) -> Result<(), String> {
+    let checkpoint: layerfs_core::Checkpoint = name.parse().map_err(|e| format!("{e}"))?;
+    let entry_id = format!("layerfs-{}.conf", checkpoint.name());
+
+    let entry_path = esp.join("loader/entries").join(&entry_id);
+    if !entry_path.is_file() {
+        return Err(format!(
+            "{} not found: generate systemd-boot entries for this ESP first",
+            entry_path.display()
+        ));
+    }
+
+    set_systemd_boot_default(esp, &entry_id)?;
+    println!("next boot: {} ({entry_id})", checkpoint.name());
+    Ok(())
+}
+
+/// Rewrites (or creates) `<esp>/loader/loader.conf`'s `default` line,
+/// leaving every other line untouched, via the same write-temp-then-rename
+/// pattern used for metadata commits elsewhere in this codebase.
+fn set_systemd_boot_default(esp: &Path, entry_id: &str) -> Result<(), String> {
+    let loader_dir = esp.join("loader");
+    std::fs::create_dir_all(&loader_dir).map_err(|e| e.to_string())?;
+    let loader_conf = loader_dir.join("loader.conf");
+
+    let mut lines: Vec<String> = match std::fs::read_to_string(&loader_conf) {
+        Ok(contents) => contents.lines().map(String::from).collect(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => return Err(e.to_string()),
+    };
+
+    let default_line = format!("default {entry_id}");
+    match lines
+        .iter_mut()
+        .find(|line| line.trim_start().starts_with("default "))
+    {
+        Some(existing) => *existing = default_line,
+        None => lines.insert(0, default_line),
+    }
+
+    let temporary = loader_dir.join(".loader.conf.new");
+    std::fs::write(&temporary, lines.join("\n") + "\n").map_err(|e| e.to_string())?;
+    std::fs::rename(temporary, loader_conf).map_err(|e| e.to_string())
 }
 
 /// Real binary names each named adapter stands in for.
@@ -541,6 +591,67 @@ mod integration_tests {
         assert!(activated.is_empty());
         assert!(!base.join("usr/bin/layerfs-dnf").exists());
 
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn set_systemd_boot_default_creates_loader_conf() {
+        let root = scratch("checkpoint-create");
+        set_systemd_boot_default(&root, "layerfs-safe.conf").unwrap();
+
+        assert_eq!(
+            fs::read_to_string(root.join("loader/loader.conf")).unwrap(),
+            "default layerfs-safe.conf\n"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn set_systemd_boot_default_replaces_existing_default_only() {
+        let root = scratch("checkpoint-replace");
+        fs::create_dir_all(root.join("loader")).unwrap();
+        fs::write(
+            root.join("loader/loader.conf"),
+            "timeout 3\ndefault layerfs-normal.conf\nconsole-mode auto\n",
+        )
+        .unwrap();
+
+        set_systemd_boot_default(&root, "layerfs-base.conf").unwrap();
+
+        assert_eq!(
+            fs::read_to_string(root.join("loader/loader.conf")).unwrap(),
+            "timeout 3\ndefault layerfs-base.conf\nconsole-mode auto\n"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn checkpoint_cmd_rejects_unknown_checkpoint_name() {
+        let root = scratch("checkpoint-bad-name");
+        assert!(checkpoint_cmd("bogus", &root).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn checkpoint_cmd_rejects_missing_entry() {
+        let root = scratch("checkpoint-missing-entry");
+        let err = checkpoint_cmd("safe", &root).unwrap_err();
+        assert!(err.contains("layerfs-safe.conf"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn checkpoint_cmd_sets_default_when_entry_present() {
+        let root = scratch("checkpoint-ok");
+        fs::create_dir_all(root.join("loader/entries")).unwrap();
+        fs::write(root.join("loader/entries/layerfs-safe.conf"), "title x\n").unwrap();
+
+        checkpoint_cmd("safe", &root).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(root.join("loader/loader.conf")).unwrap(),
+            "default layerfs-safe.conf\n"
+        );
         fs::remove_dir_all(root).unwrap();
     }
 }

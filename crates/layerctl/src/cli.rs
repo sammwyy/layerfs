@@ -30,6 +30,7 @@ pub enum Command {
     },
     Checkpoint {
         name: String,
+        esp: PathBuf,
     },
     Install {
         source: PathBuf,
@@ -130,9 +131,22 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Invocation, CliError>
         "rebuild" => Command::Rebuild {
             target: args.next().ok_or(CliError::MissingArgument("target"))?,
         },
-        "checkpoint" => Command::Checkpoint {
-            name: args.next().ok_or(CliError::MissingArgument("name"))?,
-        },
+        "checkpoint" => {
+            let name = args.next().ok_or(CliError::MissingArgument("name"))?;
+            let mut esp = PathBuf::from("/boot/efi");
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--esp" => {
+                        esp = args
+                            .next()
+                            .ok_or(CliError::MissingArgument("--esp value"))?
+                            .into()
+                    }
+                    other => return Err(CliError::UnknownCommand(other.to_string())),
+                }
+            }
+            Command::Checkpoint { name, esp }
+        }
         "install" => {
             let mut source = None;
             let mut integrations = Vec::new();
