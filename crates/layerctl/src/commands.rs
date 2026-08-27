@@ -1,7 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use layerfs_storage::{DirectoryBackend, StorageBackend};
 use layerfs_transaction::Transaction;
 
 use crate::cli::{Command, Invocation};
@@ -158,8 +157,8 @@ fn verify_cmd(store_root: &std::path::Path) -> Result<(), String> {
 /// Development-only system transaction: stages, chroots `program` into the
 /// assembled view, validates, and commits on success.
 fn transaction_cmd(store_root: &Path, program: &str, args: &[String]) -> Result<(), String> {
-    let backend = DirectoryBackend::new(store_root);
-    let mut txn = Transaction::begin(store_root, &backend, transaction_id(), "layerctl")
+    let backend = layerfs_storage::detect_backend(store_root);
+    let mut txn = Transaction::begin(store_root, backend.as_ref(), transaction_id(), "layerctl")
         .map_err(|e| e.to_string())?;
 
     let target = store_root.join("transaction-root");
@@ -206,7 +205,7 @@ fn install_cmd(store_root: &Path, source: &Path) -> Result<(), String> {
     }
     std::fs::create_dir_all(store_root).map_err(|e| e.to_string())?;
 
-    let backend = DirectoryBackend::new(store_root);
+    let backend = layerfs_storage::detect_backend(store_root);
     backend
         .prepare_layer(&base, Some(source))
         .map_err(|e| e.to_string())?;
@@ -216,7 +215,7 @@ fn install_cmd(store_root: &Path, source: &Path) -> Result<(), String> {
     for name in layerfs_core::DATA_MOUNTS {
         let from = base.join(name);
         if from.is_dir() {
-            std::fs::rename(&from, data_root.join(name)).map_err(|e| e.to_string())?;
+            move_dir(&from, &data_root.join(name)).map_err(|e| e.to_string())?;
         }
     }
 
@@ -236,6 +235,19 @@ fn install_cmd(store_root: &Path, source: &Path) -> Result<(), String> {
 
     println!("installed store at {}", store_root.display());
     Ok(())
+}
+
+/// Renames `from` to `to`, falling back to copy+delete on `EXDEV` (e.g. moving
+/// out of a Btrfs subvolume, which rename can't cross even on the same fs).
+fn move_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    match std::fs::rename(from, to) {
+        Ok(()) => Ok(()),
+        Err(e) if e.raw_os_error() == Some(18) /* EXDEV */ => {
+            layerfs_storage::copy_tree::copy_tree(from, to)?;
+            std::fs::remove_dir_all(from)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Applies the current UPDATE_HEAD/UPDATE to `live_root` live, scoped to

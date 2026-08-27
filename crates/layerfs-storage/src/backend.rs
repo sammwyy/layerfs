@@ -24,3 +24,27 @@ pub trait StorageBackend {
     /// Performs a structural integrity check of a layer.
     fn verify_layer(&self, layer: &Path) -> Result<(), StorageError>;
 }
+
+const BTRFS_SUPER_MAGIC: u32 = 0x9123_683e;
+
+/// Picks `BtrfsBackend` if `root` (or its nearest existing ancestor) sits
+/// on a Btrfs filesystem, else falls back to `DirectoryBackend`.
+pub fn detect_backend(root: &Path) -> Box<dyn StorageBackend> {
+    let mut probe = root;
+    while !probe.exists() {
+        match probe.parent() {
+            Some(parent) => probe = parent,
+            None => break,
+        }
+    }
+
+    let is_btrfs = rustix::fs::statfs(probe)
+        .map(|s| s.f_type as u32 == BTRFS_SUPER_MAGIC)
+        .unwrap_or(false);
+
+    if is_btrfs {
+        Box::new(crate::BtrfsBackend::new(root))
+    } else {
+        Box::new(crate::DirectoryBackend::new(root))
+    }
+}

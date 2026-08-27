@@ -4,7 +4,7 @@
 mod backend;
 pub mod boot;
 mod btrfs;
-mod copy_tree;
+pub mod copy_tree;
 mod directory;
 mod discover;
 mod error;
@@ -17,7 +17,7 @@ pub mod squash;
 pub mod validate;
 mod whiteout;
 
-pub use backend::StorageBackend;
+pub use backend::{StorageBackend, detect_backend};
 pub use btrfs::BtrfsBackend;
 pub use directory::DirectoryBackend;
 pub use discover::{DiscoveredStore, discover};

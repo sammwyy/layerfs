@@ -2043,6 +2043,7 @@ Progress:
 
 - [x] `flock`-based `TransactionLock` (`layerfs-transaction::lock`)
 - [x] real `DirectoryBackend`: `prepare_layer`/`clone_layer` (recursive copy preserving symlinks and OverlayFS whiteouts, `layerfs-storage::copy_tree`), `freeze_layer`/`delete_layer` (permission-bit based; true immutability is the Btrfs backend's job), `verify_layer`
+- [x] real `BtrfsBackend` (was a stub returning `NotImplemented` everywhere): shells out to the `btrfs` CLI for `subvolume create`/`snapshot`/`delete` and `property set ro`; `layerfs_storage::detect_backend` picks it automatically via `statfs` when the store root sits on Btrfs, `DirectoryBackend` otherwise — `layerctl install`/`transaction` now use this instead of hardcoding `DirectoryBackend`. Verified for real against a loop-mounted Btrfs image in a privileged container: subvolume create/CoW-snapshot/read-only-freeze (write correctly rejected)/delete, and a real `install` producing an actual Btrfs subvolume for `base`. Surfaced and fixed a real bug in the process: `install_cmd` moved `home`/`root`/`srv` out of `base` into `data/` via `rename`, which returns `EXDEV` across a Btrfs subvolume boundary even on the same filesystem — fixed with a copy+delete fallback (`layerctl::commands::move_dir`)
 - [x] private mount namespace: `Transaction::stage` calls `unshare(CLONE_NEWNS)` before mounting, so a transaction never sees OVERRIDE and its mount doesn't leak into the parent namespace (section 13)
 - [x] staging upper wired to a real `StorageBackend`: `HEAD.next > UPDATE.next > BASE` assembled via the same `layerfs_storage::overlay::assemble` boot uses (moved there from `layerfs-init` so both share one mount implementation)
 - [x] atomic metadata commit: `layerfs-storage::generations` — `update`/`update-head` are symlinks into `generations/`, repointed via `symlink` + `rename` (a single atomic syscall per pointer), never by renaming the named path itself
@@ -2180,7 +2181,8 @@ followed by an offline migration reboot.
 
 Progress:
 
-- [ ] not started
+- [x] generic ext4 (or any non-Btrfs) backend — already satisfied by `DirectoryBackend` plus `layerfs_storage::detect_backend`'s automatic fallback (Milestone 5); no ext4-specific code needed since it never had native subvolume/snapshot support to use
+- [ ] Arch + mkinitcpio + Pacman, Ubuntu + initramfs-tools + APT, systemd-boot: not started
 
 After Fedora/Btrfs is stable:
 
