@@ -9,9 +9,9 @@ use crate::store;
 use crate::walk::{self, EntryKind};
 
 /// Executes a parsed invocation. `status`, `inspect`, `diff`, `reset`,
-/// `verify`, `transaction`, `boot-register`, and `install` are implemented
-/// against a `DirectoryBackend`-style store; `rollback`/`rebuild`/
-/// `checkpoint`, which need a real running system, are still stubs.
+/// `verify`, `transaction`, `boot-register`, `install`, and `apply-now`
+/// are implemented against a `DirectoryBackend`-style store; `rollback`/
+/// `rebuild`/`checkpoint`, which need a real running system, are stubs.
 pub fn run(invocation: Invocation) -> Result<(), String> {
     let Invocation { store, command } = invocation;
     let store_root = crate::store::resolve(&store);
@@ -32,6 +32,7 @@ pub fn run(invocation: Invocation) -> Result<(), String> {
         Command::Rebuild { target } => todo(&format!("rebuild {target}")),
         Command::Checkpoint { name } => todo(&format!("checkpoint {name}")),
         Command::Install { source } => install_cmd(&store_root, &source),
+        Command::ApplyNow { live_root } => apply_now_cmd(&store_root, &live_root),
         Command::Doctor => todo("doctor"),
     }
 }
@@ -243,6 +244,47 @@ fn install_cmd(store_root: &Path, source: &Path) -> Result<(), String> {
     }
 
     println!("installed store at {}", store_root.display());
+    Ok(())
+}
+
+/// Layers the current UPDATE_HEAD/UPDATE over a snapshot of `live_root`'s
+/// present contents and swaps it in live via `mount --move`, without a
+/// reboot. Already-running processes keep their old open files; only new
+/// opens see the change.
+fn apply_now_cmd(store_root: &Path, live_root: &Path) -> Result<(), String> {
+    let discovered = store::discover_layers(store_root)?;
+
+    let mut lowers = Vec::new();
+    if let Some(head) = &discovered.update_head {
+        lowers.push(head.as_path());
+    }
+    if let Some(update) = &discovered.update {
+        lowers.push(update.as_path());
+    }
+    if lowers.is_empty() {
+        return Err("nothing to apply: no update or update-head present".to_string());
+    }
+
+    let override_dir = discovered
+        .r#override
+        .unwrap_or_else(|| store_root.join("override"));
+    std::fs::create_dir_all(&override_dir).map_err(|e| e.to_string())?;
+
+    let hot = store_root.join("hot");
+    layerfs_storage::overlay::hot_apply(
+        live_root,
+        &lowers,
+        &override_dir,
+        &hot.join("work"),
+        &hot.join("snapshot"),
+        &hot.join("staging"),
+    )
+    .map_err(|e| e.to_string())?;
+
+    println!(
+        "applied live: {} now reflects the current update",
+        live_root.display()
+    );
     Ok(())
 }
 

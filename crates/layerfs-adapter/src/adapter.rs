@@ -1,15 +1,13 @@
 use std::env;
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use layerfs_storage::DirectoryBackend;
-use layerfs_transaction::Transaction;
 
 use crate::env::bin_env_var;
 
 const DEFAULT_STORE: &str = "/run/layerfs-store";
+const DEFAULT_LIVE_ROOT: &str = "/";
+const DEFAULT_LAYERCTL: &str = "layerctl";
 
 /// A package-manager adapter: exec passthrough for read-only invocations,
 /// a real system transaction for mutating ones. `name` drives both the
@@ -41,55 +39,92 @@ impl Adapter {
         self.fail(&format!("failed to exec {bin}: {err}"))
     }
 
-    fn transacted(&self, store_root: &PathBuf, bin: &str, args: &[String]) -> ExitCode {
-        let backend = DirectoryBackend::new(store_root);
-        let mut txn = match Transaction::begin(
-            store_root.clone(),
-            &backend,
-            self.transaction_id(),
-            self.name,
-        ) {
-            Ok(t) => t,
-            Err(e) => return self.fail(&format!("begin: {e}")),
-        };
+    /// Runs the transaction in a separate `layerctl` process rather than
+    /// in-process: `Transaction::stage` unshares into a private mount
+    /// namespace, and that namespace dies with whatever process called it
+    /// — running it here would leave this process unable to hot-apply to
+    /// the real one afterward.
+    fn transacted(&self, store_root: &Path, bin: &str, args: &[String]) -> ExitCode {
+        let layerctl =
+            env::var("LAYERFS_LAYERCTL_BIN").unwrap_or_else(|_| DEFAULT_LAYERCTL.to_string());
 
-        if let Err(e) = txn.stage(store_root.join("transaction-root")) {
-            return self.fail(&format!("stage: {e}"));
-        }
+        let status = Command::new(&layerctl)
+            .arg("--store")
+            .arg(store_root)
+            .arg("transaction")
+            .arg("--")
+            .arg(bin)
+            .args(args)
+            .status();
 
-        let status = match txn.execute(bin, args) {
+        let status = match status {
             Ok(s) => s,
-            Err(e) => return self.fail(&format!("execute: {e}")),
+            Err(e) => return self.fail(&format!("failed to run {layerctl}: {e}")),
         };
 
         if !status.success() {
-            eprintln!(
-                "{}: {bin} exited with {status}; transaction discarded",
-                self.name
-            );
             return ExitCode::from(status.code().unwrap_or(1).clamp(1, 255) as u8);
         }
 
-        if let Err(e) = txn.validate() {
-            return self.fail(&format!("validate: {e}"));
-        }
-        if let Err(e) = txn.commit() {
-            return self.fail(&format!("commit: {e}"));
-        }
-
+        self.try_hot_apply(store_root);
         ExitCode::SUCCESS
+    }
+
+    /// Applies the just-committed update to the running system if it's
+    /// judged safe (no shared libraries/kernel touched); otherwise reports
+    /// that a reboot is needed, never guessing wrong in the risky direction.
+    fn try_hot_apply(&self, store_root: &Path) {
+        let discovered = match layerfs_storage::discover(store_root) {
+            Ok(d) => d,
+            Err(_) => return self.report_reboot_required(),
+        };
+        let Some(head) = &discovered.update_head else {
+            return self.report_reboot_required();
+        };
+
+        match layerfs_storage::risk::layer_is_risky(head) {
+            Ok(true) | Err(_) => self.report_reboot_required(),
+            Ok(false) => {
+                let live_root = PathBuf::from(
+                    env::var("LAYERFS_LIVE_ROOT").unwrap_or_else(|_| DEFAULT_LIVE_ROOT.to_string()),
+                );
+                let override_dir = discovered
+                    .r#override
+                    .unwrap_or_else(|| store_root.join("override"));
+                let _ = std::fs::create_dir_all(&override_dir);
+
+                let mut lowers = vec![head.as_path()];
+                if let Some(update) = &discovered.update {
+                    lowers.push(update.as_path());
+                }
+
+                let hot = store_root.join("hot");
+                let result = layerfs_storage::overlay::hot_apply(
+                    &live_root,
+                    &lowers,
+                    &override_dir,
+                    &hot.join("work"),
+                    &hot.join("snapshot"),
+                    &hot.join("staging"),
+                );
+
+                match result {
+                    Ok(()) => eprintln!("{}: update applied live, no reboot needed", self.name),
+                    Err(e) => eprintln!(
+                        "{}: update committed but live apply failed ({e}); reboot required to apply",
+                        self.name
+                    ),
+                }
+            }
+        }
+    }
+
+    fn report_reboot_required(&self) {
+        eprintln!("{}: update committed; reboot required to apply", self.name);
     }
 
     fn fail(&self, msg: &str) -> ExitCode {
         eprintln!("{}: {msg}", self.name);
         ExitCode::FAILURE
-    }
-
-    fn transaction_id(&self) -> String {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or_default();
-        format!("{}-{nanos}", self.name)
     }
 }

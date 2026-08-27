@@ -9,4 +9,3 @@ description = "Reusable runner for package-manager adapters: classify, exec pass
 
 [dependencies]
 layerfs-storage.workspace = true
-layerfs-transaction.workspace = true

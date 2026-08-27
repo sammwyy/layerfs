@@ -148,6 +148,24 @@ dedicated dracut initramfs, not implemented yet):
 ./target/debug/layerctl --store /path/to/a/store install --source /path/to/a/rootfs
 ```
 
+A committed transaction only becomes the *booted* root on the next reboot
+— the running system's mounted `/` can't be reconfigured under it. But a
+committed update can be applied to the running system without a reboot:
+`layerctl apply-now [--live-root <path>]` snapshots the current root,
+layers the store's UPDATE_HEAD/UPDATE on top, and atomically swaps it in
+via `mount --move`. Already-open files on already-running processes keep
+their old content (normal Unix replace-while-open behavior); new opens see
+the change immediately. `dnf`/`apt` adapters call this automatically after
+a commit, but only when the update didn't touch a shared library, `/boot`,
+or systemd itself — otherwise they report that a reboot is required rather
+than risk leaving running processes on a stale version of something they
+already loaded:
+
+```bash
+unshare --map-root-user --mount -- \
+    ./target/debug/layerctl --store /path/to/a/store apply-now
+```
+
 ## Initial target
 
 Fedora, Btrfs, GRUB, dracut, DNF, x86_64, UEFI. Other distributions and

@@ -3,9 +3,9 @@ use std::fs;
 use std::io;
 use std::path::Path;
 
-use rustix::mount::{MountFlags, mount, mount_bind};
+use rustix::mount::{MountFlags, mount, mount_bind, mount_move};
 
-use layerfs_core::{DATA_MOUNTS, LayerStack};
+use layerfs_core::{DATA_MOUNTS, Layer, LayerKind, LayerStack};
 
 /// Mounts a resolved layer stack at `target`: bind-mount if it's a single
 /// read-only layer, else an OverlayFS mount (`work_dir` only used then).
@@ -45,6 +45,48 @@ pub fn assemble(stack: &LayerStack, work_dir: &Path, target: &Path) -> io::Resul
         options.as_c_str(),
     )
     .map_err(io::Error::from)
+}
+
+/// Layers `new_lowers` (highest priority first) over a snapshot of
+/// `live_root`'s current contents, then atomically swaps that assembled
+/// view in as `live_root` itself via `mount --move`. Processes that
+/// already opened files from `live_root` keep the old versions (normal
+/// Unix replace-while-open semantics); new opens see `new_lowers`.
+pub fn hot_apply(
+    live_root: &Path,
+    new_lowers: &[&Path],
+    override_dir: &Path,
+    work_dir: &Path,
+    snapshot_dir: &Path,
+    staging_dir: &Path,
+) -> io::Result<()> {
+    fs::create_dir_all(snapshot_dir)?;
+    mount_bind(live_root, snapshot_dir)?;
+
+    let mut stack = LayerStack::new();
+    stack.push(Layer::new(
+        LayerKind::Override,
+        "override",
+        override_dir,
+        false,
+    ));
+    for (i, lower) in new_lowers.iter().enumerate() {
+        stack.push(Layer::new(
+            LayerKind::Update,
+            format!("hot-{i}"),
+            *lower,
+            true,
+        ));
+    }
+    stack.push(Layer::new(
+        LayerKind::Base,
+        "live-snapshot",
+        snapshot_dir,
+        true,
+    ));
+
+    assemble(&stack, work_dir, staging_dir)?;
+    mount_move(staging_dir, live_root).map_err(io::Error::from)
 }
 
 /// Bind-mounts each present DATA subdirectory onto `target`; missing ones

@@ -34,6 +34,9 @@ pub enum Command {
     Install {
         source: PathBuf,
     },
+    ApplyNow {
+        live_root: PathBuf,
+    },
     Doctor,
 }
 
@@ -141,6 +144,21 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Invocation, CliError>
             Command::Install {
                 source: source.ok_or(CliError::MissingArgument("--source"))?.into(),
             }
+        }
+        "apply-now" => {
+            let mut live_root = PathBuf::from("/");
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--live-root" => {
+                        live_root = args
+                            .next()
+                            .ok_or(CliError::MissingArgument("--live-root value"))?
+                            .into()
+                    }
+                    other => return Err(CliError::UnknownCommand(other.to_string())),
+                }
+            }
+            Command::ApplyNow { live_root }
         }
         "doctor" => Command::Doctor,
         other => return Err(CliError::UnknownCommand(other.to_string())),

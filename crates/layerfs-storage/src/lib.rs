@@ -11,6 +11,7 @@ mod error;
 pub mod generations;
 mod opaque;
 pub mod overlay;
+pub mod risk;
 pub mod squash;
 pub mod validate;
 mod whiteout;

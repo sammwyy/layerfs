@@ -2193,6 +2193,20 @@ systemd-boot
 
 ---
 
+## Milestone 11 — Live apply (not in the original design notes)
+
+Progress:
+
+- [x] `layerfs_storage::overlay::hot_apply` — snapshots the live root via bind mount, layers UPDATE_HEAD/UPDATE plus the existing OVERRIDE on top, and atomically swaps it in with `mount --move`. Already-open files on already-running processes keep their old content (standard Unix replace-while-open semantics); new opens see the change immediately.
+- [x] `layerctl apply-now [--live-root <path>]` — manual trigger.
+- [x] `layerfs_storage::risk` — classifies a committed UPDATE_HEAD as safe or risky to hot-apply by path prefix (`usr/lib*`, `lib*`, `boot`, `usr/lib/systemd` are risky: shared libraries/kernel/systemd already loaded by running processes wouldn't actually update by swapping the mount, only new process launches would, which is a real correctness hazard, not just a cosmetic one).
+- [x] `layerfs-adapter` calls `apply-now` automatically after a successful commit when the update is classified safe; otherwise it reports that a reboot is required, matching the fail-safe-toward-caution rule used everywhere else in this codebase.
+- [x] a real, non-obvious bug was found and fixed here: the adapter originally ran the transaction in-process via `layerfs-transaction` directly. `Transaction::stage` unshares into a private mount namespace for isolation — but since that happened in the *same* process that would later try to hot-apply, the hot-apply mounts landed in a namespace that died with the process, invisible to the real system the whole time despite reporting success. Fixed by having the adapter spawn `layerctl transaction` as a separate child process instead of linking the transaction engine directly — the child's private namespace is destroyed when it exits, leaving the adapter process in the real one for `apply-now` to actually affect.
+- [x] verified for real: registered a store, bind-mounted a fixed directory as a stand-in "live root", ran a real transaction against it, confirmed the live root did *not* change before `apply-now`, then confirmed it did after — for both the manual `layerctl apply-now` path and the adapter's automatic path; separately confirmed a "risky" update (touching `usr/lib64`) is committed but correctly left unapplied
+- [ ] not scoped: this only ever adds one hot layer per apply — it doesn't try to reconcile with a later reboot's from-scratch boot assembly (which is unaffected, since it reads `state.json`/generation symlinks fresh) or clean up stacked hot layers across many same-boot applies
+
+---
+
 # 42. Suggested Initial Implementation Order
 
 Do **not** begin with package-manager interception.
