@@ -1,5 +1,12 @@
 use std::path::PathBuf;
 
+/// Which boot loader `checkpoint` should target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bootloader {
+    SystemdBoot,
+    Grub,
+}
+
 #[derive(Debug)]
 pub enum Command {
     Status,
@@ -30,7 +37,10 @@ pub enum Command {
     },
     Checkpoint {
         name: String,
+        bootloader: Bootloader,
         esp: PathBuf,
+        grub_cfg: PathBuf,
+        grubenv: PathBuf,
     },
     Install {
         source: PathBuf,
@@ -133,19 +143,51 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Invocation, CliError>
         },
         "checkpoint" => {
             let name = args.next().ok_or(CliError::MissingArgument("name"))?;
+            let mut bootloader = Bootloader::SystemdBoot;
             let mut esp = PathBuf::from("/boot/efi");
+            let mut grub_cfg = PathBuf::from("/boot/grub2/grub.cfg");
+            let mut grubenv = PathBuf::from("/boot/grub2/grubenv");
             while let Some(arg) = args.next() {
                 match arg.as_str() {
+                    "--bootloader" => {
+                        bootloader = match args
+                            .next()
+                            .ok_or(CliError::MissingArgument("--bootloader value"))?
+                            .as_str()
+                        {
+                            "systemd-boot" => Bootloader::SystemdBoot,
+                            "grub" => Bootloader::Grub,
+                            other => return Err(CliError::UnknownCommand(other.to_string())),
+                        }
+                    }
                     "--esp" => {
                         esp = args
                             .next()
                             .ok_or(CliError::MissingArgument("--esp value"))?
                             .into()
                     }
+                    "--grub-cfg" => {
+                        grub_cfg = args
+                            .next()
+                            .ok_or(CliError::MissingArgument("--grub-cfg value"))?
+                            .into()
+                    }
+                    "--grubenv" => {
+                        grubenv = args
+                            .next()
+                            .ok_or(CliError::MissingArgument("--grubenv value"))?
+                            .into()
+                    }
                     other => return Err(CliError::UnknownCommand(other.to_string())),
                 }
             }
-            Command::Checkpoint { name, esp }
+            Command::Checkpoint {
+                name,
+                bootloader,
+                esp,
+                grub_cfg,
+                grubenv,
+            }
         }
         "install" => {
             let mut source = None;

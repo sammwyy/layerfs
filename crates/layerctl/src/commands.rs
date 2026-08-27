@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use layerfs_transaction::{Transaction, TransactionLock};
 
-use crate::cli::{Command, Invocation};
+use crate::cli::{Bootloader, Command, Invocation};
 use crate::store;
 use crate::walk::{self, EntryKind};
 
@@ -26,7 +26,13 @@ pub fn run(invocation: Invocation) -> Result<(), String> {
         } => boot_register_cmd(&store_root, &name, &kernel, &initramfs),
         Command::Rollback { target } => rollback_cmd(&store_root, &target),
         Command::Rebuild { target } => todo(&format!("rebuild {target}")),
-        Command::Checkpoint { name, esp } => checkpoint_cmd(&name, &esp),
+        Command::Checkpoint {
+            name,
+            bootloader,
+            esp,
+            grub_cfg,
+            grubenv,
+        } => checkpoint_cmd(&name, bootloader, &esp, &grub_cfg, &grubenv),
         Command::Install {
             source,
             integrations,
@@ -257,20 +263,44 @@ fn boot_register_cmd(
 /// 25. Only systemd-boot is supported so far: it's just an ESP file write,
 /// with no external tool to shell out to. GRUB's equivalent
 /// (`grubenv`/`grub2-set-default`) isn't implemented yet.
-fn checkpoint_cmd(name: &str, esp: &Path) -> Result<(), String> {
+fn checkpoint_cmd(
+    name: &str,
+    bootloader: Bootloader,
+    esp: &Path,
+    grub_cfg: &Path,
+    grubenv: &Path,
+) -> Result<(), String> {
     let checkpoint: layerfs_core::Checkpoint = name.parse().map_err(|e| format!("{e}"))?;
-    let entry_id = format!("layerfs-{}.conf", checkpoint.name());
 
-    let entry_path = esp.join("loader/entries").join(&entry_id);
-    if !entry_path.is_file() {
-        return Err(format!(
-            "{} not found: generate systemd-boot entries for this ESP first",
-            entry_path.display()
-        ));
+    match bootloader {
+        Bootloader::SystemdBoot => {
+            let entry_id = format!("layerfs-{}.conf", checkpoint.name());
+            let entry_path = esp.join("loader/entries").join(&entry_id);
+            if !entry_path.is_file() {
+                return Err(format!(
+                    "{} not found: generate systemd-boot entries for this ESP first",
+                    entry_path.display()
+                ));
+            }
+            set_systemd_boot_default(esp, &entry_id)?;
+            println!("next boot: {} ({entry_id})", checkpoint.name());
+        }
+        Bootloader::Grub => {
+            let entry_id = format!("layerfs-{}", checkpoint.name());
+            if !grub_entry_exists(grub_cfg, &entry_id)? {
+                return Err(format!(
+                    "no menuentry --id '{entry_id}' in {}: generate GRUB entries first",
+                    grub_cfg.display()
+                ));
+            }
+            set_grub_default(grubenv, &entry_id)?;
+            println!(
+                "next boot: {} ({entry_id}) — requires GRUB_DEFAULT=saved in this system's GRUB config",
+                checkpoint.name()
+            );
+        }
     }
 
-    set_systemd_boot_default(esp, &entry_id)?;
-    println!("next boot: {} ({entry_id})", checkpoint.name());
     Ok(())
 }
 
@@ -300,6 +330,81 @@ fn set_systemd_boot_default(esp: &Path, entry_id: &str) -> Result<(), String> {
     let temporary = loader_dir.join(".loader.conf.new");
     std::fs::write(&temporary, lines.join("\n") + "\n").map_err(|e| e.to_string())?;
     std::fs::rename(temporary, loader_conf).map_err(|e| e.to_string())
+}
+
+/// Whether `grub_cfg` contains a `menuentry --id '<entry_id>'`. The
+/// generated entries live inside one rendered `grub.cfg`, not as separate
+/// files the way systemd-boot's BLS entries do, so this is the only way to
+/// check one exists before pointing `grubenv` at it.
+fn grub_entry_exists(grub_cfg: &Path, entry_id: &str) -> Result<bool, String> {
+    match std::fs::read_to_string(grub_cfg) {
+        Ok(contents) => Ok(contents.contains(&format!("--id '{entry_id}'"))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+const GRUB_ENVBLK_SIZE: usize = 1024;
+const GRUB_ENVBLK_SIGNATURE: &str = "# GRUB Environment Block\n";
+
+/// Sets `saved_entry=<entry_id>` in `grubenv`, preserving any other
+/// variables already stored there — GRUB reads `saved_entry` as the
+/// default boot entry when the system's GRUB config sets
+/// `GRUB_DEFAULT=saved` (a `/etc/default/grub` setting outside LayerFS's
+/// control, so this only takes effect if that's already set up).
+fn set_grub_default(grubenv: &Path, entry_id: &str) -> Result<(), String> {
+    let mut vars = read_grubenv(grubenv)?;
+    match vars.iter_mut().find(|(k, _)| k == "saved_entry") {
+        Some((_, v)) => *v = entry_id.to_string(),
+        None => vars.push(("saved_entry".to_string(), entry_id.to_string())),
+    }
+    write_grubenv(grubenv, &vars)
+}
+
+/// Parses the fixed-size `grub2-editenv` block format: a fixed signature
+/// line, `key=value\n` entries, then `#`-padding out to
+/// `GRUB_ENVBLK_SIZE` bytes total. A missing file reads as no variables —
+/// `grub2-mkconfig` creates a fresh one the same way.
+fn read_grubenv(path: &Path) -> Result<Vec<(String, String)>, String> {
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e.to_string()),
+    };
+    let text = String::from_utf8_lossy(&bytes);
+    let body = text.strip_prefix(GRUB_ENVBLK_SIGNATURE).unwrap_or(&text);
+
+    Ok(body
+        .split('\n')
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .filter_map(|line| line.split_once('='))
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect())
+}
+
+fn write_grubenv(path: &Path, vars: &[(String, String)]) -> Result<(), String> {
+    let mut body = GRUB_ENVBLK_SIGNATURE.to_string();
+    for (key, value) in vars {
+        body.push_str(key);
+        body.push('=');
+        body.push_str(value);
+        body.push('\n');
+    }
+    if body.len() > GRUB_ENVBLK_SIZE {
+        return Err(format!(
+            "grubenv contents ({} bytes) exceed the {GRUB_ENVBLK_SIZE}-byte block",
+            body.len()
+        ));
+    }
+    body.push_str(&"#".repeat(GRUB_ENVBLK_SIZE - body.len()));
+
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("{} has no parent directory", path.display()))?;
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    let temporary = parent.join(".grubenv.new");
+    std::fs::write(&temporary, body.as_bytes()).map_err(|e| e.to_string())?;
+    std::fs::rename(temporary, path).map_err(|e| e.to_string())
 }
 
 /// Real binary names each named adapter stands in for.
@@ -625,17 +730,37 @@ mod integration_tests {
         fs::remove_dir_all(root).unwrap();
     }
 
+    fn systemd_boot_checkpoint(name: &str, esp: &Path) -> Result<(), String> {
+        checkpoint_cmd(
+            name,
+            Bootloader::SystemdBoot,
+            esp,
+            Path::new("/nonexistent-grub-cfg"),
+            Path::new("/nonexistent-grubenv"),
+        )
+    }
+
+    fn grub_checkpoint(name: &str, grub_cfg: &Path, grubenv: &Path) -> Result<(), String> {
+        checkpoint_cmd(
+            name,
+            Bootloader::Grub,
+            Path::new("/nonexistent-esp"),
+            grub_cfg,
+            grubenv,
+        )
+    }
+
     #[test]
     fn checkpoint_cmd_rejects_unknown_checkpoint_name() {
         let root = scratch("checkpoint-bad-name");
-        assert!(checkpoint_cmd("bogus", &root).is_err());
+        assert!(systemd_boot_checkpoint("bogus", &root).is_err());
         fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
     fn checkpoint_cmd_rejects_missing_entry() {
         let root = scratch("checkpoint-missing-entry");
-        let err = checkpoint_cmd("safe", &root).unwrap_err();
+        let err = systemd_boot_checkpoint("safe", &root).unwrap_err();
         assert!(err.contains("layerfs-safe.conf"));
         fs::remove_dir_all(root).unwrap();
     }
@@ -646,11 +771,88 @@ mod integration_tests {
         fs::create_dir_all(root.join("loader/entries")).unwrap();
         fs::write(root.join("loader/entries/layerfs-safe.conf"), "title x\n").unwrap();
 
-        checkpoint_cmd("safe", &root).unwrap();
+        systemd_boot_checkpoint("safe", &root).unwrap();
 
         assert_eq!(
             fs::read_to_string(root.join("loader/loader.conf")).unwrap(),
             "default layerfs-safe.conf\n"
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn grubenv_round_trips_through_the_fixed_size_block() {
+        let root = scratch("grubenv-roundtrip");
+        let grubenv = root.join("grubenv");
+
+        write_grubenv(
+            &grubenv,
+            &[("saved_entry".to_string(), "layerfs-safe".to_string())],
+        )
+        .unwrap();
+
+        let bytes = fs::read(&grubenv).unwrap();
+        assert_eq!(bytes.len(), GRUB_ENVBLK_SIZE);
+        assert!(bytes.starts_with(GRUB_ENVBLK_SIGNATURE.as_bytes()));
+        assert_eq!(
+            read_grubenv(&grubenv).unwrap(),
+            vec![("saved_entry".to_string(), "layerfs-safe".to_string())]
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn set_grub_default_preserves_other_vars() {
+        let root = scratch("grub-default-preserve");
+        let grubenv = root.join("grubenv");
+        write_grubenv(
+            &grubenv,
+            &[
+                ("saved_entry".to_string(), "layerfs-normal".to_string()),
+                ("other_var".to_string(), "kept".to_string()),
+            ],
+        )
+        .unwrap();
+
+        set_grub_default(&grubenv, "layerfs-base").unwrap();
+
+        let mut vars = read_grubenv(&grubenv).unwrap();
+        vars.sort();
+        assert_eq!(
+            vars,
+            vec![
+                ("other_var".to_string(), "kept".to_string()),
+                ("saved_entry".to_string(), "layerfs-base".to_string()),
+            ]
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn grub_checkpoint_rejects_missing_entry() {
+        let root = scratch("grub-checkpoint-missing");
+        let grub_cfg = root.join("grub.cfg");
+        fs::write(&grub_cfg, "menuentry 'x' --id 'layerfs-normal' {}\n").unwrap();
+
+        let err = grub_checkpoint("safe", &grub_cfg, &root.join("grubenv")).unwrap_err();
+
+        assert!(err.contains("layerfs-safe"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn grub_checkpoint_sets_default_when_entry_present() {
+        let root = scratch("grub-checkpoint-ok");
+        let grub_cfg = root.join("grub.cfg");
+        fs::write(&grub_cfg, "menuentry 'Safe' --id 'layerfs-safe' {}\n").unwrap();
+        let grubenv = root.join("grubenv");
+
+        grub_checkpoint("safe", &grub_cfg, &grubenv).unwrap();
+
+        assert_eq!(
+            read_grubenv(&grubenv).unwrap(),
+            vec![("saved_entry".to_string(), "layerfs-safe".to_string())]
         );
         fs::remove_dir_all(root).unwrap();
     }

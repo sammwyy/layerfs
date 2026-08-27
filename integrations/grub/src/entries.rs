@@ -31,6 +31,10 @@ enum BootTier {
 }
 
 struct Entry {
+    /// Stable identifier (`menuentry --id`), matching the systemd-boot
+    /// integration's entry filenames 1:1 so `layerctl checkpoint <name>`
+    /// can address either bootloader's default entry the same way.
+    id: &'static str,
     title: &'static str,
     checkpoint: Checkpoint,
     head_off: bool,
@@ -44,30 +48,35 @@ struct Entry {
 /// before it, and Base Recovery boots the original factory kernel.
 const ENTRIES: [Entry; 5] = [
     Entry {
+        id: "layerfs-normal",
         title: "Fedora Linux",
         checkpoint: Checkpoint::Normal,
         head_off: false,
         boot: BootTier::Head,
     },
     Entry {
+        id: "layerfs-safe",
         title: "Fedora Linux — Safe Mode",
         checkpoint: Checkpoint::Safe,
         head_off: false,
         boot: BootTier::Head,
     },
     Entry {
+        id: "layerfs-system",
         title: "Fedora Linux — System Only",
         checkpoint: Checkpoint::System,
         head_off: false,
         boot: BootTier::Head,
     },
     Entry {
+        id: "layerfs-previous",
         title: "Fedora Linux — Previous Update",
         checkpoint: Checkpoint::Safe,
         head_off: true,
         boot: BootTier::Update,
     },
     Entry {
+        id: "layerfs-base",
         title: "Fedora Linux — Base Recovery",
         checkpoint: Checkpoint::Base,
         head_off: false,
@@ -107,8 +116,9 @@ pub fn render(opts: &Options) -> String {
         }
 
         out.push_str(&format!(
-            "menuentry '{title}' {{\n    linux {linux} {cmdline}\n    initrd {initrd}\n}}\n",
+            "menuentry '{title}' --id '{id}' {{\n    linux {linux} {cmdline}\n    initrd {initrd}\n}}\n",
             title = entry.title,
+            id = entry.id,
             linux = boot.kernel,
             cmdline = cmdline,
             initrd = boot.initramfs,
@@ -163,11 +173,11 @@ mod tests {
         assert_eq!(
             titles,
             [
-                "menuentry 'Fedora Linux' {",
-                "menuentry 'Fedora Linux — Safe Mode' {",
-                "menuentry 'Fedora Linux — System Only' {",
-                "menuentry 'Fedora Linux — Previous Update' {",
-                "menuentry 'Fedora Linux — Base Recovery' {",
+                "menuentry 'Fedora Linux' --id 'layerfs-normal' {",
+                "menuentry 'Fedora Linux — Safe Mode' --id 'layerfs-safe' {",
+                "menuentry 'Fedora Linux — System Only' --id 'layerfs-system' {",
+                "menuentry 'Fedora Linux — Previous Update' --id 'layerfs-previous' {",
+                "menuentry 'Fedora Linux — Base Recovery' --id 'layerfs-base' {",
             ]
         );
     }
@@ -241,7 +251,10 @@ mod tests {
     #[test]
     fn each_entry_uses_its_own_boot_tier() {
         let out = render(&opts());
-        let normal = out.split("'Fedora Linux' {").nth(1).unwrap();
+        let normal = out
+            .split("'Fedora Linux' --id 'layerfs-normal' {")
+            .nth(1)
+            .unwrap();
         assert!(normal.contains("/boot/head/vmlinuz"));
 
         let previous = out.split("Previous Update").nth(1).unwrap();
@@ -256,12 +269,18 @@ mod tests {
         let mut opts = opts();
         opts.head = None;
         let out = render(&opts);
-        let normal = out.split("'Fedora Linux' {").nth(1).unwrap();
+        let normal = out
+            .split("'Fedora Linux' --id 'layerfs-normal' {")
+            .nth(1)
+            .unwrap();
         assert!(normal.contains("/boot/update/vmlinuz"));
 
         opts.update = None;
         let out = render(&opts);
-        let normal = out.split("'Fedora Linux' {").nth(1).unwrap();
+        let normal = out
+            .split("'Fedora Linux' --id 'layerfs-normal' {")
+            .nth(1)
+            .unwrap();
         assert!(normal.contains("/boot/base/vmlinuz"));
     }
 
