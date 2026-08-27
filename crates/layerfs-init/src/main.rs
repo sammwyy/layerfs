@@ -5,9 +5,11 @@ use std::fs;
 use std::path::Path;
 
 use layerfs_core::BootOptions;
-use layerfs_init::{log, migrate, mount, store, switch_root};
+use layerfs_init::{log, migrate, modules, mount, pseudo, store, switch_root};
 
 fn main() {
+    pseudo::mount_pseudo_fs();
+    modules::load_bus_drivers();
     let cmdline = fs::read_to_string("/proc/cmdline").unwrap_or_default();
 
     let opts = match BootOptions::parse(&cmdline) {
