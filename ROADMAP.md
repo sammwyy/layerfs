@@ -2184,7 +2184,9 @@ Progress:
 - [x] generic ext4 (or any non-Btrfs) backend — already satisfied by `DirectoryBackend` plus `layerfs_storage::detect_backend`'s automatic fallback (Milestone 5); no ext4-specific code needed since it never had native subvolume/snapshot support to use
 - [x] Pacman adapter (`integrations/pacman`, `layerfs-pacman`) — same `layerfs-adapter` runner as DNF, its own `classify::is_mutating` reading pacman's operation flag (`-S`/`-R`/`-U`/`-Q`/`-F`/`-D`/`-T`/`-V`/`-h`, short or long, since pacman takes an operation rather than a verb); `-S` is mutating unless paired with an informational modifier (`-Ss`/`-Si`/`-Sl`/`-Sp`/`-Sw`/`--downloadonly`), `-D` is conservatively mutating, unrecognized non-empty invocations default to mutating like DNF's unknown-verb case
 - [x] verified for real end to end (`unshare --map-root-user --mount --user`, a statically-linked musl stand-in `pacman` chrooted into a real transaction root): `-S vim` mutates the store and hot-applies live with no reboot, content changing from `v1` to `v2` in a stand-in live root
-- [ ] mkinitcpio integration, systemd-boot, Ubuntu + initramfs-tools + APT: not started
+- [x] APT adapter (`integrations/apt`, `layerfs-apt`) — same runner and pattern as the Pacman adapter, wraps `apt-get` (not `apt`, whose CLI is documented as unstable for scripting); `classify::is_mutating` mirrors DNF's allowlist-of-read-only-verbs approach (`list`/`search`/`show`/`update`/... are read-only, everything else including unknown verbs is mutating), with `--dry-run`/`-s`/`--just-print`/`--download-only`/`-d` forcing read-only regardless of verb
+- [x] verified for real end to end, same method as the Pacman adapter: `install curl` mutates the store and hot-applies live with no reboot
+- [ ] mkinitcpio integration, systemd-boot, initramfs-tools integration: not started
 
 After Fedora/Btrfs is stable:
 

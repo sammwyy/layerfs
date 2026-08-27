@@ -1,0 +1,15 @@
+[package]
+name = "layerfs-apt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "APT adapter: routes mutating APT operations through a LayerFS system transaction"
+
+[dependencies]
+layerfs-adapter.workspace = true
+
+[[bin]]
+name = "layerfs-apt"
+path = "src/main.rs"
