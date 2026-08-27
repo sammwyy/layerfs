@@ -106,6 +106,16 @@ under `/lib/modules/$(uname -r)`; nothing on the host is modified.
 ./scripts/qemu-smoke.sh
 ```
 
+`scripts/qemu-btrfs-store-smoke.sh` covers the backing-device path: it creates
+a throwaway Btrfs image in a privileged Docker container, attaches it as a
+virtio disk, and boots it under QEMU with `layerfs.store=/dev/vda`. The init
+mounts that device, assembles the root, and hands off to its init. It also
+needs Docker with permission to run privileged containers.
+
+```bash
+./scripts/qemu-btrfs-store-smoke.sh
+```
+
 `scripts/qemu-grub-smoke.sh` goes one step further: it generates a real
 `grub.cfg` with `layerfs-grub-entries`, checks it with `grub2-script-check`,
 builds an actual bootable ISO (`grub2-mkrescue`), and boots it under

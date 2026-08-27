@@ -7,7 +7,10 @@ use rustix::system::init_module;
 
 fn main() {
     mount_pseudo_fs();
-    if let Err(error) = mount_bind("/store", "/run/layerfs-store") {
+    let cmdline = std::fs::read_to_string("/proc/cmdline").unwrap_or_default();
+    if !cmdline.contains("layerfs.store=")
+        && let Err(error) = mount_bind("/store", "/run/layerfs-store")
+    {
         eprintln!("QEMU-SWITCH-ROOT: FAIL: mount store: {error}");
         return;
     }
