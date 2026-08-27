@@ -1,11 +1,20 @@
 use std::ffi::CString;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use rustix::mount::{MountFlags, UnmountFlags, mount, unmount};
 
+use crate::device_scan;
+
 const STORE_MOUNT: &str = "/run/layerfs-store";
 const DISK_BY_DIR: &str = "/dev/disk";
+/// How long to keep retrying device resolution before giving up. `rdinit=`
+/// means no udev has run to populate devices, only kernel-managed devtmpfs
+/// (see `device_scan`) — usually near-instant, but real hardware enumerates
+/// on its own schedule, so a bounded wait beats a single racy attempt.
+const DEVICE_WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+const DEVICE_WAIT_POLL: Duration = Duration::from_millis(200);
 
 pub fn locate(explicit: Option<&str>, subvol: Option<&str>) -> Result<PathBuf, String> {
     if let Some(store) = explicit {
@@ -23,15 +32,37 @@ pub fn locate(explicit: Option<&str>, subvol: Option<&str>) -> Result<PathBuf, S
 }
 
 /// Resolves `layerfs.store=UUID=<uuid>` / `LABEL=<label>` / `PARTUUID=<uuid>`
-/// device specs to a real block device path via the standard udev symlinks
-/// under `/dev/disk/by-*`, the same convention `root=UUID=...` uses. A spec
-/// that isn't one of these forms (an already-mounted path, or a literal
-/// device path like `/dev/vda`) passes through unchanged.
+/// device specs to a real block device path, retrying for up to
+/// `DEVICE_WAIT_TIMEOUT` since nothing else waits for the device to appear
+/// (see `DEVICE_WAIT_TIMEOUT`'s doc comment). A spec that isn't one of
+/// these forms (an already-mounted path, or a literal device path like
+/// `/dev/vda`) resolves immediately, unchanged.
 fn resolve_device_spec(spec: &str) -> Result<PathBuf, String> {
-    resolve_device_spec_under(Path::new(DISK_BY_DIR), spec)
+    resolve_device_spec_with_timeout(spec, DEVICE_WAIT_TIMEOUT)
 }
 
-fn resolve_device_spec_under(disk_by_dir: &Path, spec: &str) -> Result<PathBuf, String> {
+fn resolve_device_spec_with_timeout(spec: &str, timeout: Duration) -> Result<PathBuf, String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(path) = resolve_device_spec_under(Path::new(DISK_BY_DIR), spec) {
+            return Ok(path);
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "timed out after {timeout:?} waiting for device: {spec}"
+            ));
+        }
+        std::thread::sleep(DEVICE_WAIT_POLL);
+    }
+}
+
+/// Single-shot resolution attempt: prefers the udev symlinks under
+/// `<disk_by_dir>/by-*` when present (works for any filesystem type, and
+/// for `PARTUUID=`, which needs partition-table parsing this doesn't do),
+/// falling back to a direct Btrfs superblock scan for `UUID=`/`LABEL=`
+/// (`device_scan`) — the only path that actually works under `rdinit=`,
+/// where no udev has run to create those symlinks at all.
+fn resolve_device_spec_under(disk_by_dir: &Path, spec: &str) -> Option<PathBuf> {
     let (by_dir, id) = if let Some(uuid) = spec.strip_prefix("UUID=") {
         ("by-uuid", uuid)
     } else if let Some(label) = spec.strip_prefix("LABEL=") {
@@ -39,11 +70,19 @@ fn resolve_device_spec_under(disk_by_dir: &Path, spec: &str) -> Result<PathBuf, 
     } else if let Some(uuid) = spec.strip_prefix("PARTUUID=") {
         ("by-partuuid", uuid)
     } else {
-        return Ok(PathBuf::from(spec));
+        return Some(PathBuf::from(spec));
     };
 
     let link = disk_by_dir.join(by_dir).join(id);
-    std::fs::canonicalize(&link).map_err(|e| format!("resolve {spec} ({}): {e}", link.display()))
+    if let Ok(resolved) = std::fs::canonicalize(&link) {
+        return Some(resolved);
+    }
+
+    match by_dir {
+        "by-uuid" => device_scan::find_by_uuid(id),
+        "by-label" => device_scan::find_by_label(id),
+        _ => None,
+    }
 }
 
 fn require_store(path: PathBuf, subvol: Option<&str>) -> Result<PathBuf, String> {
@@ -149,8 +188,8 @@ mod tests {
     fn resolves_uuid_spec_via_the_udev_symlink() {
         let disk_by = fake_disk_by_dir("uuid");
         assert_eq!(
-            resolve_device_spec_under(&disk_by, "UUID=1111-2222").unwrap(),
-            disk_by.join("fake-device")
+            resolve_device_spec_under(&disk_by, "UUID=1111-2222"),
+            Some(disk_by.join("fake-device"))
         );
         std::fs::remove_dir_all(disk_by).unwrap();
     }
@@ -159,8 +198,8 @@ mod tests {
     fn resolves_label_spec_via_the_udev_symlink() {
         let disk_by = fake_disk_by_dir("label");
         assert_eq!(
-            resolve_device_spec_under(&disk_by, "LABEL=mylabel").unwrap(),
-            disk_by.join("fake-device")
+            resolve_device_spec_under(&disk_by, "LABEL=mylabel"),
+            Some(disk_by.join("fake-device"))
         );
         std::fs::remove_dir_all(disk_by).unwrap();
     }
@@ -169,8 +208,8 @@ mod tests {
     fn resolves_partuuid_spec_via_the_udev_symlink() {
         let disk_by = fake_disk_by_dir("partuuid");
         assert_eq!(
-            resolve_device_spec_under(&disk_by, "PARTUUID=aaaa-bbbb").unwrap(),
-            disk_by.join("fake-device")
+            resolve_device_spec_under(&disk_by, "PARTUUID=aaaa-bbbb"),
+            Some(disk_by.join("fake-device"))
         );
         std::fs::remove_dir_all(disk_by).unwrap();
     }
@@ -179,18 +218,30 @@ mod tests {
     fn non_spec_paths_pass_through_unchanged() {
         let disk_by = fake_disk_by_dir("passthrough");
         assert_eq!(
-            resolve_device_spec_under(&disk_by, "/dev/vda").unwrap(),
-            PathBuf::from("/dev/vda")
+            resolve_device_spec_under(&disk_by, "/dev/vda"),
+            Some(PathBuf::from("/dev/vda"))
         );
         std::fs::remove_dir_all(disk_by).unwrap();
     }
 
     #[test]
-    fn unresolvable_uuid_is_a_clear_error() {
+    fn unresolvable_uuid_falls_through_to_none() {
         let disk_by = fake_disk_by_dir("missing");
-        let err = resolve_device_spec_under(&disk_by, "UUID=does-not-exist").unwrap_err();
-        assert!(err.contains("UUID=does-not-exist"));
+        assert_eq!(
+            resolve_device_spec_under(&disk_by, "UUID=does-not-exist-nope"),
+            None
+        );
         std::fs::remove_dir_all(disk_by).unwrap();
+    }
+
+    #[test]
+    fn resolve_device_spec_gives_up_after_its_timeout() {
+        let err = resolve_device_spec_with_timeout(
+            "UUID=definitely-does-not-exist",
+            Duration::from_millis(50),
+        )
+        .unwrap_err();
+        assert!(err.contains("timed out"));
     }
 
     #[test]
