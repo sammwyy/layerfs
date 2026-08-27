@@ -1578,6 +1578,42 @@ reboot normal
 
 This avoids racing against modifications occurring on the live root filesystem.
 
+**Status: implemented and verified against real disposable disk images (never a host device).**
+
+What exists:
+
+```text
+layerfs-init migrate mode (layerfs.migrate=1, layerfs.migrate_source=<spec>)
+    resolves migrate_source and store via the same device-scan path as normal boot
+    mounts migrate_source read-only via mount(8) (filesystem-agnostic)
+    mounts store as Btrfs (no `base` required yet)
+    execs `layerctl install --source <source> --store <store>`
+        (reuses the existing, already-tested install command — not reimplemented)
+    unmounts both cleanly (forces a Btrfs commit before power-off)
+    powers off
+
+layerctl schedule-migration --source <spec> --store <spec> --kernel <path> --initramfs <path>
+    stages kernel/initramfs into the ESP
+    writes a systemd-boot BLS entry with the migrate cmdline options
+    sets it as the default entry for the next boot
+```
+
+Verified end-to-end via `scripts/qemu-migration-smoke.sh`: real ext4 "old system" and Btrfs
+"store" disk images inside loop devices, a real dedicated initramfs (musl-static
+`layerfs-init` + `layerctl`, plus real `mount`/`btrfs` binaries with their shared
+libraries), booted under QEMU with `rdinit=`. Confirms BASE/OVERRIDE created, DATA
+(`/home`) extracted, and the source's `/home` correctly excluded from BASE.
+
+Known gaps, left honest rather than silently assumed:
+
+```text
+schedule-migration only supports systemd-boot (same asymmetry as `checkpoint`; no GRUB path)
+repointing the boot loader back to normal after a successful migration is a manual step —
+    the migration initramfs logs "repoint the boot loader before rebooting" but does not do it
+LUKS/encrypted migrate_source has not been tested (layerfs.luks= is honored for the store,
+    not exercised for the source in the smoke test)
+```
+
 ---
 
 # 32. Initial Fedora Strategy

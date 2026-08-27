@@ -95,6 +95,24 @@ fn require_store(path: PathBuf, subvol: Option<&str>) -> Result<PathBuf, String>
 
 fn mount_btrfs_store(source: &Path, subvol: Option<&str>) -> Result<PathBuf, String> {
     let target = Path::new(STORE_MOUNT);
+    mount_btrfs(source, target, subvol)?;
+
+    if target.join("base").is_dir() {
+        return Ok(target.to_path_buf());
+    }
+
+    unmount(target, UnmountFlags::empty())
+        .map_err(io::Error::from)
+        .map_err(|e| format!("unmount {}: {e}", target.display()))?;
+    Err(format!("{} is not a LayerFS Btrfs store", source.display()))
+}
+
+/// Mounts a Btrfs device with no assumption `base` already exists there.
+pub(crate) fn mount_btrfs(
+    source: &Path,
+    target: &Path,
+    subvol: Option<&str>,
+) -> Result<(), String> {
     std::fs::create_dir_all(target).map_err(|e| e.to_string())?;
 
     let data = subvol
@@ -109,16 +127,11 @@ fn mount_btrfs_store(source: &Path, subvol: Option<&str>) -> Result<PathBuf, Str
         data.as_deref(),
     )
     .map_err(io::Error::from)
-    .map_err(|e| format!("mount {} at {}: {e}", source.display(), target.display()))?;
+    .map_err(|e| format!("mount {} at {}: {e}", source.display(), target.display()))
+}
 
-    if target.join("base").is_dir() {
-        return Ok(target.to_path_buf());
-    }
-
-    unmount(target, UnmountFlags::empty())
-        .map_err(io::Error::from)
-        .map_err(|e| format!("unmount {}: {e}", target.display()))?;
-    Err(format!("{} is not a LayerFS Btrfs store", source.display()))
+pub(crate) fn resolve_device(spec: &str) -> Result<PathBuf, String> {
+    resolve_device_spec(spec)
 }
 
 fn mountpoints(mountinfo: &str) -> impl Iterator<Item = PathBuf> + '_ {

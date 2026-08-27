@@ -46,6 +46,14 @@ pub fn run(invocation: Invocation) -> Result<(), String> {
             grub_entries.as_deref(),
         ),
         Command::ApplyNow { live_root } => apply_now_cmd(&store_root, &live_root),
+        Command::ScheduleMigration {
+            source,
+            store,
+            kernel,
+            initramfs,
+            rdinit,
+            esp,
+        } => schedule_migration_cmd(&source, &store, &kernel, &initramfs, &rdinit, &esp),
         Command::Doctor => crate::doctor::run(&store_root),
     }
 }
@@ -596,6 +604,34 @@ fn apply_now_cmd(store_root: &Path, live_root: &Path) -> Result<(), String> {
             Ok(())
         }
     }
+}
+
+/// Copies a migration kernel/initramfs onto `esp` and points the default
+/// boot entry at it (systemd-boot only).
+fn schedule_migration_cmd(
+    source: &str,
+    store: &str,
+    kernel: &Path,
+    initramfs: &Path,
+    rdinit: &str,
+    esp: &Path,
+) -> Result<(), String> {
+    let dest_dir = esp.join("layerfs-migrate");
+    std::fs::create_dir_all(&dest_dir).map_err(|e| e.to_string())?;
+    std::fs::copy(kernel, dest_dir.join("vmlinuz")).map_err(|e| e.to_string())?;
+    std::fs::copy(initramfs, dest_dir.join("initramfs.img")).map_err(|e| e.to_string())?;
+
+    let entries_dir = esp.join("loader/entries");
+    std::fs::create_dir_all(&entries_dir).map_err(|e| e.to_string())?;
+    let contents = format!(
+        "title LayerFS Migration\nlinux /layerfs-migrate/vmlinuz\ninitrd /layerfs-migrate/initramfs.img\noptions layerfs.migrate=1 layerfs.migrate_source={source} layerfs.store={store} rdinit={rdinit}\n"
+    );
+    std::fs::write(entries_dir.join("layerfs-migrate.conf"), contents)
+        .map_err(|e| e.to_string())?;
+
+    set_systemd_boot_default(esp, "layerfs-migrate.conf")?;
+    println!("scheduled migration: reboot to convert {source} into a LayerFS store on {store}");
+    Ok(())
 }
 
 fn transaction_id() -> String {

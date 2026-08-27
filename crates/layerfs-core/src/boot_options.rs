@@ -14,6 +14,10 @@ pub struct BootOptions {
     /// Encrypted device to unlock before `store` (`layerfs.luks=<spec>`).
     pub luks: Option<String>,
     pub luks_key: Option<String>,
+    /// Retrofit-migration boot (`layerfs.migrate=1`): converts
+    /// `migrate_source` into `store` instead of assembling a root.
+    pub migrate: bool,
+    pub migrate_source: Option<String>,
     /// Adapter names to activate for this boot (`layerfs.integrations=dnf,apt`).
     pub integrations: Vec<String>,
 }
@@ -28,17 +32,16 @@ impl Default for BootOptions {
             subvol: None,
             luks: None,
             luks_key: None,
+            migrate: false,
+            migrate_source: None,
             integrations: Vec::new(),
         }
     }
 }
 
 impl BootOptions {
-    /// Parses options out of a raw `/proc/cmdline` string.
-    ///
-    /// Unknown non-`layerfs.*` tokens are ignored. An invalid `layerfs.*`
-    /// value is rejected rather than silently falling back, per the
-    /// fail-safe boot policy.
+    /// Parses options out of a raw `/proc/cmdline` string. Unknown tokens
+    /// are ignored; an invalid `layerfs.*` value is rejected outright.
     pub fn parse(cmdline: &str) -> Result<Self, CoreError> {
         let mut opts = BootOptions::default();
 
@@ -55,6 +58,8 @@ impl BootOptions {
                 "layerfs.subvol" => opts.subvol = Some(value.to_string()),
                 "layerfs.luks" => opts.luks = Some(value.to_string()),
                 "layerfs.luks_key" => opts.luks_key = Some(value.to_string()),
+                "layerfs.migrate" => opts.migrate = parse_bool(key, value)?,
+                "layerfs.migrate_source" => opts.migrate_source = Some(value.to_string()),
                 "layerfs.integrations" => {
                     opts.integrations = value
                         .split(',')
@@ -138,5 +143,19 @@ mod tests {
         let opts = BootOptions::parse("").unwrap();
         assert!(opts.luks.is_none());
         assert!(opts.luks_key.is_none());
+    }
+
+    #[test]
+    fn parses_migrate_and_migrate_source() {
+        let opts = BootOptions::parse("layerfs.migrate=1 layerfs.migrate_source=UUID=old").unwrap();
+        assert!(opts.migrate);
+        assert_eq!(opts.migrate_source.as_deref(), Some("UUID=old"));
+    }
+
+    #[test]
+    fn defaults_to_no_migration() {
+        let opts = BootOptions::parse("").unwrap();
+        assert!(!opts.migrate);
+        assert!(opts.migrate_source.is_none());
     }
 }

@@ -2,10 +2,8 @@ use std::path::{Path, PathBuf};
 
 use layerfs_storage::{DiscoveredStore, discover};
 
-/// Default store root when `--store` is not given. Matches the transient
-/// mount point section 19 of the design notes uses during boot; on a
-/// running system this is normally where the backing store is exposed for
-/// administration.
+/// Default store root when `--store` is not given: the transient mount
+/// point used during boot, also exposed here for administration.
 const DEFAULT_STORE: &str = "/run/layerfs-store";
 
 pub fn resolve(store: &Option<PathBuf>) -> PathBuf {

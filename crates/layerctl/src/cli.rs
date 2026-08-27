@@ -51,6 +51,14 @@ pub enum Command {
     ApplyNow {
         live_root: PathBuf,
     },
+    ScheduleMigration {
+        source: String,
+        store: String,
+        kernel: PathBuf,
+        initramfs: PathBuf,
+        rdinit: String,
+        esp: PathBuf,
+    },
     Doctor,
 }
 
@@ -246,6 +254,49 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Invocation, CliError>
                 }
             }
             Command::ApplyNow { live_root }
+        }
+        "schedule-migration" => {
+            let mut source = None;
+            let mut store = None;
+            let mut kernel = None;
+            let mut initramfs = None;
+            let mut rdinit = "/sbin/layerfs-init".to_string();
+            let mut esp = PathBuf::from("/boot/efi");
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--source" => source = args.next(),
+                    "--store" => store = args.next(),
+                    "--kernel" => kernel = args.next(),
+                    "--initramfs" => initramfs = args.next(),
+                    "--rdinit" => {
+                        rdinit = args
+                            .next()
+                            .ok_or(CliError::MissingArgument("--rdinit value"))?
+                    }
+                    "--esp" => {
+                        esp = args
+                            .next()
+                            .ok_or(CliError::MissingArgument("--esp value"))?
+                            .into()
+                    }
+                    other => return Err(CliError::UnknownCommand(other.to_string())),
+                }
+            }
+            let (Some(source), Some(store), Some(kernel), Some(initramfs)) =
+                (source, store, kernel, initramfs)
+            else {
+                return Err(CliError::MissingArgument(
+                    "--source, --store, --kernel, and --initramfs",
+                ));
+            };
+            Command::ScheduleMigration {
+                source,
+                store,
+                kernel: kernel.into(),
+                initramfs: initramfs.into(),
+                rdinit,
+                esp,
+            }
         }
         "doctor" => Command::Doctor,
         other => return Err(CliError::UnknownCommand(other.to_string())),
