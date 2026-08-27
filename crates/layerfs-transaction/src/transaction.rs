@@ -3,7 +3,7 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 
-use rustix::mount::{UnmountFlags, unmount};
+use rustix::mount::{UnmountFlags, mount_bind_recursive, unmount};
 use rustix::process::chroot;
 use rustix::thread::{UnshareFlags, unshare_unsafe};
 
@@ -117,6 +117,7 @@ impl<'a> Transaction<'a> {
 
         let target = target.into();
         layerfs_storage::overlay::assemble(&stack, &discovered.work, &target)?;
+        mount_virtual_filesystems(&target)?;
 
         // Resolve now: these are symlink paths, and activate() below
         // repoints them, so GC must target the old generation, not the symlink.
@@ -180,6 +181,7 @@ impl<'a> Transaction<'a> {
         let staged = self.staged.take().ok_or(TransactionError::NotStaged)?;
         self.record.state = TransactionState::Committing;
 
+        unmount_virtual_filesystems(&staged.target);
         let _ = unmount(&staged.target, UnmountFlags::DETACH);
 
         self.backend.freeze_layer(&staged.update_next)?;
@@ -207,10 +209,31 @@ impl Drop for Transaction<'_> {
         }
 
         if let Some(staged) = self.staged.take() {
+            unmount_virtual_filesystems(&staged.target);
             let _ = unmount(&staged.target, UnmountFlags::DETACH);
             let _ = self.backend.delete_layer(&staged.update_next);
             let _ = self.backend.delete_layer(&staged.head_next);
         }
+    }
+}
+
+/// `/proc`, `/sys`, `/dev`, `/run` bound into the transaction root so a real
+/// package manager's scriptlets (dracut, ldconfig, systemd-sysusers, ...)
+/// see the same virtual filesystems they would on a live system.
+const VIRTUAL_MOUNTS: &[&str] = &["proc", "sys", "dev", "run"];
+
+fn mount_virtual_filesystems(target: &Path) -> Result<(), TransactionError> {
+    for name in VIRTUAL_MOUNTS {
+        let dest = target.join(name);
+        fs::create_dir_all(&dest)?;
+        mount_bind_recursive(Path::new("/").join(name), &dest).map_err(std::io::Error::from)?;
+    }
+    Ok(())
+}
+
+fn unmount_virtual_filesystems(target: &Path) {
+    for name in VIRTUAL_MOUNTS {
+        let _ = unmount(target.join(name), UnmountFlags::DETACH);
     }
 }
 
