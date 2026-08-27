@@ -10,7 +10,7 @@ use layerfs_adapter::Adapter;
 
 const ADAPTER: Adapter = Adapter {
     name: "apt",
-    default_binary: "apt-get",
+    default_binary: "apt-get.layerfs-real",
 };
 
 fn main() -> ExitCode {

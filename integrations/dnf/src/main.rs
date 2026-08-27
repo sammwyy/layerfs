@@ -10,7 +10,7 @@ use layerfs_adapter::Adapter;
 
 const ADAPTER: Adapter = Adapter {
     name: "dnf",
-    default_binary: "dnf",
+    default_binary: "dnf.layerfs-real",
 };
 
 fn main() -> ExitCode {

@@ -30,8 +30,15 @@ pub fn run(invocation: Invocation) -> Result<(), String> {
         Command::Install {
             source,
             integrations,
+            adapter_bins,
             grub_entries,
-        } => install_cmd(&store_root, &source, &integrations, grub_entries.as_deref()),
+        } => install_cmd(
+            &store_root,
+            &source,
+            &integrations,
+            &adapter_bins,
+            grub_entries.as_deref(),
+        ),
         Command::ApplyNow { live_root } => apply_now_cmd(&store_root, &live_root),
         Command::Doctor => crate::doctor::run(&store_root),
     }
@@ -232,9 +239,17 @@ const KNOWN_INTEGRATIONS: &[(&str, &[&str])] = &[
     ("pacman", &["pacman"]),
 ];
 
-/// Symlinks each present real binary to its adapter (`dnf` -> `layerfs-dnf`).
-/// Errs on an unrecognized name rather than booting with it silently inactive.
-fn activate_integrations(base: &Path, integrations: &[String]) -> Result<Vec<String>, String> {
+/// Installs each adapter binary as `layerfs-<name>`, preserves the real
+/// binary as `<real_name>.layerfs-real` (adapters fall back to that name
+/// when unwrapped by an env var), and symlinks the real name to the
+/// adapter. Errs on an unrecognized name rather than booting with it
+/// silently inactive, and on a missing adapter binary rather than leaving
+/// a symlink that points nowhere.
+fn activate_integrations(
+    base: &Path,
+    integrations: &[String],
+    adapter_bins: &[(String, PathBuf)],
+) -> Result<Vec<String>, String> {
     let mut activated = Vec::new();
 
     for name in integrations {
@@ -244,15 +259,35 @@ fn activate_integrations(base: &Path, integrations: &[String]) -> Result<Vec<Str
             .map(|(_, c)| *c)
             .ok_or_else(|| format!("unknown integration: {name}"))?;
 
+        let adapter_bin = adapter_bins
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, p)| p)
+            .ok_or_else(|| format!("--adapter-bin required for integration: {name}"))?;
+
+        let mut installed_wrapper = false;
+
         for real_name in candidates {
             let target = base.join("usr/bin").join(real_name);
             if !target.exists() {
                 continue;
             }
-            std::fs::remove_file(&target).map_err(|e| e.to_string())?;
+
+            if !installed_wrapper {
+                let wrapper = base.join("usr/bin").join(format!("layerfs-{name}"));
+                std::fs::copy(adapter_bin, &wrapper).map_err(|e| e.to_string())?;
+                installed_wrapper = true;
+            }
+
+            let real_backup = base
+                .join("usr/bin")
+                .join(format!("{real_name}.layerfs-real"));
+            std::fs::rename(&target, &real_backup).map_err(|e| e.to_string())?;
             std::os::unix::fs::symlink(format!("layerfs-{name}"), &target)
                 .map_err(|e| e.to_string())?;
-            activated.push(format!("{real_name} -> layerfs-{name}"));
+            activated.push(format!(
+                "{real_name} -> layerfs-{name} (real preserved as {real_name}.layerfs-real)"
+            ));
         }
     }
 
@@ -285,6 +320,7 @@ fn install_cmd(
     store_root: &Path,
     source: &Path,
     integrations: &[String],
+    adapter_bins: &[(String, PathBuf)],
     grub_entries: Option<&Path>,
 ) -> Result<(), String> {
     if !source.is_dir() {
@@ -313,7 +349,7 @@ fn install_cmd(
 
     std::fs::create_dir_all(store_root.join("override")).map_err(|e| e.to_string())?;
 
-    for link in activate_integrations(&base, integrations)? {
+    for link in activate_integrations(&base, integrations, adapter_bins)? {
         println!("activated {link}");
     }
 
@@ -381,4 +417,106 @@ fn transaction_id() -> String {
         .map(|d| d.as_nanos())
         .unwrap_or_default();
     format!("txn-{nanos}")
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn scratch(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "layerfs-activate-integrations-{name}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(root.join("base/usr/bin")).unwrap();
+        root
+    }
+
+    fn fake_binary(path: &Path, contents: &str) {
+        fs::write(path, contents).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[test]
+    fn wraps_real_binary_and_preserves_it() {
+        let root = scratch("wraps");
+        let base = root.join("base");
+        fake_binary(&base.join("usr/bin/dnf"), "real dnf");
+        let adapter_bin = root.join("layerfs-dnf-built");
+        fake_binary(&adapter_bin, "adapter dnf");
+
+        let activated = activate_integrations(
+            &base,
+            &["dnf".to_string()],
+            &[("dnf".to_string(), adapter_bin)],
+        )
+        .unwrap();
+
+        assert_eq!(
+            activated,
+            vec!["dnf -> layerfs-dnf (real preserved as dnf.layerfs-real)"]
+        );
+        assert_eq!(
+            fs::read_to_string(base.join("usr/bin/dnf.layerfs-real")).unwrap(),
+            "real dnf"
+        );
+        assert_eq!(
+            fs::read_to_string(base.join("usr/bin/layerfs-dnf")).unwrap(),
+            "adapter dnf"
+        );
+        assert_eq!(
+            fs::read_link(base.join("usr/bin/dnf")).unwrap(),
+            Path::new("layerfs-dnf")
+        );
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_missing_adapter_binary() {
+        let root = scratch("missing-adapter-bin");
+        let base = root.join("base");
+        fake_binary(&base.join("usr/bin/dnf"), "real dnf");
+
+        let err = activate_integrations(&base, &["dnf".to_string()], &[]).unwrap_err();
+
+        assert!(err.contains("--adapter-bin required for integration: dnf"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejects_unknown_integration() {
+        let root = scratch("unknown");
+        let base = root.join("base");
+
+        let err = activate_integrations(&base, &["bogus".to_string()], &[]).unwrap_err();
+
+        assert!(err.contains("unknown integration: bogus"));
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn skips_absent_real_binary_without_error() {
+        let root = scratch("absent");
+        let base = root.join("base");
+        let adapter_bin = root.join("layerfs-dnf-built");
+        fake_binary(&adapter_bin, "adapter dnf");
+
+        let activated = activate_integrations(
+            &base,
+            &["dnf".to_string()],
+            &[("dnf".to_string(), adapter_bin)],
+        )
+        .unwrap();
+
+        assert!(activated.is_empty());
+        assert!(!base.join("usr/bin/layerfs-dnf").exists());
+
+        fs::remove_dir_all(root).unwrap();
+    }
 }

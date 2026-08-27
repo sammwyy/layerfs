@@ -34,6 +34,7 @@ pub enum Command {
     Install {
         source: PathBuf,
         integrations: Vec<String>,
+        adapter_bins: Vec<(String, PathBuf)>,
         grub_entries: Option<PathBuf>,
     },
     ApplyNow {
@@ -135,6 +136,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Invocation, CliError>
         "install" => {
             let mut source = None;
             let mut integrations = Vec::new();
+            let mut adapter_bins = Vec::new();
             let mut grub_entries = None;
             while let Some(arg) = args.next() {
                 match arg.as_str() {
@@ -147,6 +149,15 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Invocation, CliError>
                             .filter(|s| !s.is_empty())
                             .map(String::from)
                             .collect()
+                    }
+                    "--adapter-bin" => {
+                        let value = args
+                            .next()
+                            .ok_or(CliError::MissingArgument("--adapter-bin value"))?;
+                        let (name, path) = value
+                            .split_once('=')
+                            .ok_or(CliError::MissingArgument("--adapter-bin value (name=path)"))?;
+                        adapter_bins.push((name.to_string(), path.into()));
                     }
                     "--grub-entries" => {
                         grub_entries = Some(
@@ -161,6 +172,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Invocation, CliError>
             Command::Install {
                 source: source.ok_or(CliError::MissingArgument("--source"))?.into(),
                 integrations,
+                adapter_bins,
                 grub_entries,
             }
         }

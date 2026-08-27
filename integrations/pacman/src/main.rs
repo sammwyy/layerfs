@@ -10,7 +10,7 @@ use layerfs_adapter::Adapter;
 
 const ADAPTER: Adapter = Adapter {
     name: "pacman",
-    default_binary: "pacman",
+    default_binary: "pacman.layerfs-real",
 };
 
 fn main() -> ExitCode {
