@@ -64,6 +64,8 @@ fn main() -> Result<(), String> {
     let mut boot_store = None;
     let mut store = None;
     let mut entries_dir = None;
+    let mut esp_prefix = None;
+    let mut extra_cmdline = String::new();
     let mut rdinit = None;
     let mut integrations = Vec::new();
     let mut args = std::env::args().skip(1);
@@ -72,6 +74,8 @@ fn main() -> Result<(), String> {
             "--boot-store" => boot_store = args.next(),
             "--store" => store = args.next(),
             "--entries-dir" => entries_dir = args.next(),
+            "--esp-prefix" => esp_prefix = args.next(),
+            "--extra-cmdline" => extra_cmdline = args.next().unwrap_or_default(),
             "--rdinit" => rdinit = args.next(),
             "--integrations" => {
                 integrations = args
@@ -85,15 +89,18 @@ fn main() -> Result<(), String> {
             _ => return Err(format!("unknown argument: {arg}")),
         }
     }
-    let (Some(boot_store), Some(store), Some(entries_dir)) = (boot_store, store, entries_dir)
+    let (Some(boot_store), Some(store), Some(entries_dir), Some(esp_prefix)) =
+        (boot_store, store, entries_dir, esp_prefix)
     else {
-        return Err("usage: layerfs-systemd-boot --boot-store <path> --store <path> --entries-dir <path> [--integrations <a,b>] [--rdinit <path>]".to_string());
+        return Err("usage: layerfs-systemd-boot --boot-store <path> --esp-prefix <path> --store <path> --entries-dir <path> [--integrations <a,b>] [--extra-cmdline <params>] [--rdinit <path>]".to_string());
     };
     let entries_dir = PathBuf::from(entries_dir);
     std::fs::create_dir_all(&entries_dir).map_err(|e| e.to_string())?;
-    let artifacts = boot::discover(Path::new(&boot_store));
+    let boot_store = PathBuf::from(boot_store);
+    let artifacts = boot::discover(&boot_store);
     for entry in ENTRIES {
-        let Some(paths) = resolve(&artifacts, entry.tier) else {
+        let Some(paths) = resolve(&artifacts, entry.tier, &boot_store, Path::new(&esp_prefix))
+        else {
             continue;
         };
         let mut options = format!(
@@ -109,6 +116,10 @@ fn main() -> Result<(), String> {
         }
         if let Some(rdinit) = &rdinit {
             options.push_str(&format!(" rdinit={rdinit}"));
+        }
+        if !extra_cmdline.is_empty() {
+            options.push(' ');
+            options.push_str(&extra_cmdline);
         }
         let contents = format!(
             "title {}\nlinux {}\ninitrd {}\noptions {}\n",
@@ -126,7 +137,12 @@ fn write_entry(entries_dir: &Path, name: &str, contents: String) -> Result<(), S
     std::fs::rename(temporary, target).map_err(|e| e.to_string())
 }
 
-fn resolve(artifacts: &BootArtifacts, tier: Tier) -> Option<Paths> {
+fn resolve(
+    artifacts: &BootArtifacts,
+    tier: Tier,
+    boot_store: &Path,
+    esp_prefix: &Path,
+) -> Option<Paths> {
     let path = match tier {
         Tier::Head => artifacts
             .head
@@ -136,9 +152,18 @@ fn resolve(artifacts: &BootArtifacts, tier: Tier) -> Option<Paths> {
         Tier::Update => artifacts.update.as_ref().or(artifacts.base.as_ref()),
         Tier::Base => artifacts.base.as_ref(),
     }?;
+    let relative = path.strip_prefix(boot_store).ok()?;
     Some(Paths {
-        kernel: path.join(KERNEL_FILENAME).display().to_string(),
-        initramfs: path.join(INITRAMFS_FILENAME).display().to_string(),
+        kernel: esp_prefix
+            .join(relative)
+            .join(KERNEL_FILENAME)
+            .display()
+            .to_string(),
+        initramfs: esp_prefix
+            .join(relative)
+            .join(INITRAMFS_FILENAME)
+            .display()
+            .to_string(),
     })
 }
 

@@ -14,6 +14,7 @@ done
 cargo build -p layerfs-init --bin layerfs-init \
     --example qemu_switch_root_preinit --example switched_root_init \
     --target x86_64-unknown-linux-musl --release
+cargo build -p layerfs-systemd-boot
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
@@ -50,12 +51,17 @@ truncate -s 64M "$WORK/esp.img"
 mkfs.fat "$WORK/esp.img" >/dev/null
 mmd -i "$WORK/esp.img" ::/EFI ::/EFI/BOOT ::/loader ::/loader/entries
 mcopy -i "$WORK/esp.img" "$WORK/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
-mcopy -i "$WORK/esp.img" "$KERNEL" ::/vmlinuz
-mcopy -i "$WORK/esp.img" "$WORK/initramfs.cpio.gz" ::/initramfs.img
+mkdir -p "$WORK/boot/generations/base"
+cp "$KERNEL" "$WORK/boot/generations/base/vmlinuz"
+cp "$WORK/initramfs.cpio.gz" "$WORK/boot/generations/base/initramfs.img"
+ln -s generations/base "$WORK/boot/base"
+./target/debug/layerfs-systemd-boot --boot-store "$WORK/boot" --esp-prefix /boot \
+    --store /dev/vdb --entries-dir "$WORK/entries" --extra-cmdline console=ttyS0 --rdinit /init
+mcopy -i "$WORK/esp.img" -s "$WORK/boot" ::/
+mcopy -i "$WORK/esp.img" -s "$WORK/boot/generations/base" ::/boot/base
 printf 'default layerfs-normal.conf\ntimeout 0\n' > "$WORK/loader.conf"
-printf 'title LayerFS Linux\nlinux /vmlinuz\ninitrd /initramfs.img\noptions console=ttyS0 rdinit=/init layerfs.checkpoint=normal layerfs.store=/dev/vdb\n' > "$WORK/layerfs-normal.conf"
 mcopy -i "$WORK/esp.img" "$WORK/loader.conf" ::/loader/loader.conf
-mcopy -i "$WORK/esp.img" "$WORK/layerfs-normal.conf" ::/loader/entries/layerfs-normal.conf
+mcopy -i "$WORK/esp.img" "$WORK/entries/layerfs-normal.conf" ::/loader/entries/layerfs-normal.conf
 cp "$OVMF_VARS" "$WORK/OVMF_VARS.fd"
 
 ARGS=(
@@ -67,6 +73,6 @@ ARGS=(
 )
 [[ -r /dev/kvm && -w /dev/kvm ]] && ARGS+=(-enable-kvm -cpu host)
 OUTPUT="$(timeout 90s qemu-system-x86_64 "${ARGS[@]}" 2>&1 || true)"
-grep -E 'layerfs:|QEMU-SWITCH-ROOT|Kernel panic|qemu-system' <<<"$OUTPUT" || true
-grep -q 'QEMU-SWITCH-ROOT: PASS' <<<"$OUTPUT" || { echo "qemu-systemd-boot-smoke: FAIL" >&2; exit 1; }
+grep -E 'layerfs:|QEMU-SWITCH-ROOT|Kernel panic|qemu-system|systemd-boot|Booting' <<<"$OUTPUT" || true
+grep -q 'QEMU-SWITCH-ROOT: PASS' <<<"$OUTPUT" || { echo "$OUTPUT" >&2; echo "qemu-systemd-boot-smoke: FAIL" >&2; exit 1; }
 echo "qemu-systemd-boot-smoke: PASS"
