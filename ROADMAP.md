@@ -1957,6 +1957,7 @@ Progress:
 - [x] DATA bind-mounted alongside the overlay for `safe`/`normal` (`layerfs-init::mount::mount_data`, `layerfs_core::DATA_MOUNTS`); verified end to end (existing content visible, writes land in the backing store, correct nested unmount order) via `overlay_smoke`
 - [~] `main.rs` now discovers an already-mounted store by scanning `/proc/self/mountinfo` for a mount containing `base`, while `layerfs.store=<path>` remains an explicit override. Verified through the real QEMU `switch_root` boot without that parameter. Mounting the backing device and a full BASE discovery flow remain dracut/migration work.
 - [x] `switch_root`: `layerfs-init` now assembles at `/sysroot`, carries `/dev`, `/proc`, `/sys`, and `/run` into the new root, then moves the assembled mount to `/`, chroots, and execs `/sbin/init`. Verified by `scripts/qemu-switch-root-smoke.sh`: the actual initramfs binary hands off to `/sbin/init` from the composed OverlayFS root, which reads an OVERRIDE-shadowed marker and powers off QEMU.
+- [~] Fedora dracut module: `integrations/dracut/module-setup.sh` embeds `layerfs-init`, includes OverlayFS, and emits `rdinit=/sbin/layerfs-init`; `scripts/dracut-smoke.sh` builds an isolated image with the real dracut binary and confirms both payloads are present. It intentionally does not mount a store device yet, so it is not a complete boot integration.
 
 Add:
 
