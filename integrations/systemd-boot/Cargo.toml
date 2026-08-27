@@ -1,0 +1,12 @@
+[package]
+name = "layerfs-systemd-boot"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Installs LayerFS checkpoint entries for systemd-boot"
+
+[dependencies]
+layerfs-core.workspace = true
+layerfs-storage.workspace = true

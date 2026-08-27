@@ -105,6 +105,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "layerfs-systemd-boot"
+version = "0.1.0"
+dependencies = [
+ "layerfs-core",
+ "layerfs-storage",
+]
+
+[[package]]
 name = "layerfs-transaction"
 version = "0.1.0"
 dependencies = [

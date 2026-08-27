@@ -11,6 +11,7 @@ members = [
     "integrations/dnf",
     "integrations/pacman",
     "integrations/apt",
+    "integrations/systemd-boot",
     "xtask",
     "tests/integration",
 ]
