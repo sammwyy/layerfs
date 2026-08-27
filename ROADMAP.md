@@ -2182,7 +2182,9 @@ followed by an offline migration reboot.
 Progress:
 
 - [x] generic ext4 (or any non-Btrfs) backend — already satisfied by `DirectoryBackend` plus `layerfs_storage::detect_backend`'s automatic fallback (Milestone 5); no ext4-specific code needed since it never had native subvolume/snapshot support to use
-- [ ] Arch + mkinitcpio + Pacman, Ubuntu + initramfs-tools + APT, systemd-boot: not started
+- [x] Pacman adapter (`integrations/pacman`, `layerfs-pacman`) — same `layerfs-adapter` runner as DNF, its own `classify::is_mutating` reading pacman's operation flag (`-S`/`-R`/`-U`/`-Q`/`-F`/`-D`/`-T`/`-V`/`-h`, short or long, since pacman takes an operation rather than a verb); `-S` is mutating unless paired with an informational modifier (`-Ss`/`-Si`/`-Sl`/`-Sp`/`-Sw`/`--downloadonly`), `-D` is conservatively mutating, unrecognized non-empty invocations default to mutating like DNF's unknown-verb case
+- [x] verified for real end to end (`unshare --map-root-user --mount --user`, a statically-linked musl stand-in `pacman` chrooted into a real transaction root): `-S vim` mutates the store and hot-applies live with no reboot, content changing from `v1` to `v2` in a stand-in live root
+- [ ] mkinitcpio integration, systemd-boot, Ubuntu + initramfs-tools + APT: not started
 
 After Fedora/Btrfs is stable:
 

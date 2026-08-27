@@ -32,9 +32,9 @@ populates the cache.
 
 That classification is all this crate contributes — the passthrough exec,
 transaction staging, chrooted execution, validation, and commit all live in
-`layerfs-adapter`, shared with every other package-manager adapter. Future
-adapters (`layerfs-apt`, `layerfs-pacman`) supply their own `is_mutating`
-and reuse the same runner, each in its own crate under `integrations/`.
+`layerfs-adapter`, shared with every other package-manager adapter
+(`layerfs-pacman` already does; a future `layerfs-apt` will too), each
+supplying its own `is_mutating` in its own crate under `integrations/`.
 
 Not built by `cargo build` (see the workspace's `default-members`) — build
 with `cargo build -p layerfs-dnf` or `cargo build --workspace`.

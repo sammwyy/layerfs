@@ -82,6 +82,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "layerfs-pacman"
+version = "0.1.0"
+dependencies = [
+ "layerfs-adapter",
+]
+
+[[package]]
 name = "layerfs-storage"
 version = "0.1.0"
 dependencies = [

@@ -9,6 +9,7 @@ members = [
     "crates/layerctl",
     "integrations/grub",
     "integrations/dnf",
+    "integrations/pacman",
     "xtask",
     "tests/integration",
 ]
