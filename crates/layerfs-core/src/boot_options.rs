@@ -7,6 +7,8 @@ pub struct BootOptions {
     pub checkpoint: Checkpoint,
     pub head: bool,
     pub debug: bool,
+    /// Init executable inside the assembled root (`layerfs.init=/sbin/minid`).
+    pub init: String,
     pub store: Option<String>,
     /// Btrfs subvolume the store lives in (`layerfs.subvol=<name>`), when
     /// it isn't the device's default subvolume.
@@ -28,6 +30,7 @@ impl Default for BootOptions {
             checkpoint: Checkpoint::Normal,
             head: true,
             debug: false,
+            init: "/sbin/init".into(),
             store: None,
             subvol: None,
             luks: None,
@@ -54,6 +57,7 @@ impl BootOptions {
                 "layerfs.checkpoint" => opts.checkpoint = value.parse()?,
                 "layerfs.head" => opts.head = parse_bool(key, value)?,
                 "layerfs.debug" => opts.debug = parse_bool(key, value)?,
+                "layerfs.init" => opts.init = parse_absolute_path(key, value)?,
                 "layerfs.store" => opts.store = Some(value.to_string()),
                 "layerfs.subvol" => opts.subvol = Some(value.to_string()),
                 "layerfs.luks" => opts.luks = Some(value.to_string()),
@@ -72,6 +76,17 @@ impl BootOptions {
         }
 
         Ok(opts)
+    }
+}
+
+fn parse_absolute_path(key: &str, value: &str) -> Result<String, CoreError> {
+    if value.starts_with('/') && !value.contains('\0') {
+        Ok(value.to_string())
+    } else {
+        Err(CoreError::InvalidOption {
+            key: key.to_string(),
+            value: value.to_string(),
+        })
     }
 }
 
@@ -95,6 +110,7 @@ mod tests {
         let opts = BootOptions::parse("root=/dev/sda1 quiet").unwrap();
         assert_eq!(opts.checkpoint, Checkpoint::Normal);
         assert!(opts.head);
+        assert_eq!(opts.init, "/sbin/init");
     }
 
     #[test]
@@ -157,5 +173,12 @@ mod tests {
         let opts = BootOptions::parse("").unwrap();
         assert!(!opts.migrate);
         assert!(opts.migrate_source.is_none());
+    }
+
+    #[test]
+    fn parses_an_absolute_init_path() {
+        let opts = BootOptions::parse("layerfs.init=/sbin/minid").unwrap();
+        assert_eq!(opts.init, "/sbin/minid");
+        assert!(BootOptions::parse("layerfs.init=minid").is_err());
     }
 }

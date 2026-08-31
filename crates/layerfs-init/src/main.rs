@@ -4,8 +4,8 @@
 use std::fs;
 use std::path::Path;
 
-use layerfs_core::BootOptions;
-use layerfs_init::{log, migrate, modules, mount, pseudo, store, switch_root};
+use layerfs_core::{BootOptions, DATA_MOUNTS};
+use layerfs_init::{boot_claims, log, migrate, modules, mount, pseudo, store, switch_root};
 
 fn main() {
     pseudo::mount_pseudo_fs();
@@ -57,8 +57,23 @@ fn main() {
         log::fatal(&format!("DATA mount failed: {e}"));
     }
 
+    let mut claims = vec![Path::new("/").to_path_buf()];
+    if opts.checkpoint.includes_data()
+        && let Some(data_root) = &discovered.data
+    {
+        claims.extend(
+            DATA_MOUNTS
+                .iter()
+                .filter(|name| data_root.join(*name).is_dir())
+                .map(|name| Path::new("/").join(*name)),
+        );
+    }
+    if let Err(error) = boot_claims::write(target, claims) {
+        log::fatal(&format!("write boot mount claims failed: {error}"));
+    }
+
     log::info(&format!("switching root to {}", target.display()));
-    if let Err(e) = switch_root::switch_root(target, Path::new("/sbin/init")) {
+    if let Err(e) = switch_root::switch_root(target, Path::new(&opts.init)) {
         log::fatal(&format!("switch_root failed: {e}"));
     }
 }
