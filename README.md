@@ -12,11 +12,11 @@ inspecting what changed.
 
 Status: early skeleton. Core semantics and CLI scaffolding exist; root
 assembly, the transaction engine, and package-manager adapters are not
-implemented yet. See [ROADMAP.md](ROADMAP.md) for the full design document
-and milestone-by-milestone progress — treat it as working notes, not a
-frozen spec; where the code takes a different path than a section
-describes, the code is authoritative and the divergence should be
-documented in commit messages or comments.
+implemented yet. See [SPECS.md](SPECS.md) for the design reference and
+[ROADMAP.md](ROADMAP.md) for milestone-by-milestone progress. Where the code
+takes a different path than the specification describes, the code is
+authoritative and the divergence should be documented in commit messages or
+comments.
 
 ## Architecture
 
@@ -216,8 +216,8 @@ unshare --map-root-user --mount -- \
 ## Initial target
 
 Fedora, Btrfs, GRUB, dracut, DNF, x86_64, UEFI. Other distributions and
-backends come after this configuration is proven; see ROADMAP.md sections
-32 and 41 for the staged milestone plan.
+backends come after this configuration is proven; see SPECS.md section 32
+and ROADMAP.md's Milestone 10 for the staged milestone plan.
 
 ## Non-goals
 

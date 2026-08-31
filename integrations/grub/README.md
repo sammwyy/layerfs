@@ -2,7 +2,7 @@
 
 `layerfs-grub-entries` prints the checkpoint menu entries (Normal, Safe
 Mode, System Only, Previous Update, Base Recovery) described in
-ROADMAP.md section 8, given `--boot-store` and `--store` paths.
+SPECS.md section 8, given `--boot-store` and `--store` paths.
 
 `--boot-store <path>` points at a `layerfs-storage::boot` store
 (`layerctl boot-register` populates one). Each entry resolves its own

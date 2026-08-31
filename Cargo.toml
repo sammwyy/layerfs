@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/layerfs",
     "crates/layerfs-core",
     "crates/layerfs-storage",
     "crates/layerfs-transaction",
@@ -19,6 +20,7 @@ members = [
 # `cargo build --workspace`, ...) rather than building with plain `cargo
 # build` — the core system stays distro-agnostic by default.
 default-members = [
+    "crates/layerfs",
     "crates/layerfs-core",
     "crates/layerfs-storage",
     "crates/layerfs-transaction",

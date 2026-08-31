@@ -35,6 +35,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "layerfs"
+version = "0.1.0"
+
+[[package]]
 name = "layerfs-adapter"
 version = "0.1.0"
 dependencies = [
