@@ -3,7 +3,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-const CLAIMS_PATH: &str = "run/diskd/boot-mounts.toml";
+const CLAIMS_PATH: &str = "etc/diskd/boot-mounts.toml";
 
 /// Write mount paths that later storage policy must not manage.
 pub fn write(root: &Path, paths: impl IntoIterator<Item = PathBuf>) -> io::Result<()> {

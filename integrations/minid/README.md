@@ -2,7 +2,7 @@
 
 LayerFS remains the initramfs root provider. It discovers and assembles the
 LayerFS root, records the generic boot mount claims at
-`/run/diskd/boot-mounts.toml`, then execs minid without replacing PID 1.
+`/etc/diskd/boot-mounts.toml`, then execs minid without replacing PID 1.
 
 Install minid as `/sbin/minid` in the assembled root and pass:
 
