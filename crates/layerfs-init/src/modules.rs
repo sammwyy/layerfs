@@ -15,6 +15,9 @@ pub fn load_bus_drivers() {
     let Some(modprobe) = find_modprobe() else {
         return;
     };
+    let Some(module_root) = module_root() else {
+        return;
+    };
     let mut loaded = HashSet::new();
     for _ in 0..MAX_PASSES {
         let seen = bus_modaliases(Path::new(BUS_DEVICES));
@@ -23,10 +26,28 @@ pub fn load_bus_drivers() {
             break;
         }
         for alias in &new_aliases {
-            let _ = Command::new(modprobe).arg(alias).status();
+            let _ = Command::new(modprobe)
+                .args(["--quiet", "--dirname", module_root])
+                .arg(alias)
+                .status();
         }
         loaded.extend(new_aliases);
     }
+}
+
+fn module_root() -> Option<&'static str> {
+    let release = std::fs::read_to_string("/proc/sys/kernel/osrelease").ok()?;
+    let release = release.trim();
+    if release.is_empty() {
+        return None;
+    }
+    if Path::new("/lib/modules").join(release).is_dir() {
+        return Some("/");
+    }
+    if Path::new("/usr/lib/modules").join(release).is_dir() {
+        return Some("/usr");
+    }
+    None
 }
 
 fn find_modprobe() -> Option<&'static str> {
